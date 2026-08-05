@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Iterable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
-from zipfile import ZipFile
 
 from docx import Document as PyDocxDocument
 from docx.document import Document as DocxDocumentType
-from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -21,7 +20,6 @@ W_T = qn("w:t")
 W_SDT = qn("w:sdt")
 W_SDT_CONTENT = qn("w:sdtContent")
 W_TBL = qn("w:tbl")
-
 
 
 @dataclass(frozen=True)
@@ -424,7 +422,11 @@ class DocxDocument:
                 paragraphs_by_container[cid] = para
 
                 text = _paragraph_visible_text(para)
-                run_indices = [ri for ri, run in enumerate(para.runs) if run.text] if para.runs else []
+                run_indices = (
+                    [ri for ri, run in enumerate(para.runs) if run.text]
+                    if para.runs
+                    else []
+                )
 
                 if text:
                     seg_id = f"s{len(segments)}"
@@ -432,7 +434,11 @@ class DocxDocument:
                         TextSegment(
                             id=seg_id,
                             text=text,
-                            part="word/document.xml" if prefix.startswith("body") or prefix.startswith("table") else f"word/{prefix.split(':')[0]}.xml",
+                            part=(
+                                "word/document.xml"
+                                if prefix.startswith("body") or prefix.startswith("table")
+                                else f"word/{prefix.split(':')[0]}.xml"
+                            ),
                             index=local_idx,
                             container_id=cid,
                             paragraph_index=global_paragraph_index,
@@ -516,7 +522,11 @@ class DocxDocument:
         if not hasattr(self, "_paragraphs_by_index") or not self._paragraphs_by_index:
             return []
         max_i = max(self._paragraphs_by_index.keys())
-        return [self._paragraphs_by_index[i] for i in range(max_i + 1) if i in self._paragraphs_by_index]
+        return [
+            self._paragraphs_by_index[i]
+            for i in range(max_i + 1)
+            if i in self._paragraphs_by_index
+        ]
 
     def get_inline_segments(self, container_id: str) -> list[InlineSegment]:
         """Return the canonical rich InlineSegment decomposition for one paragraph.
@@ -682,7 +692,12 @@ class DocxDocument:
         import re as _re
         by_id = {
             m.group("id"): m.group("text").rstrip("\n")
-            for m in _re.finditer(r"<!-- docxtor:(?P<id>s\d+) -->\n(?P<text>.*?)(?=\n<!-- docxtor:s\d+ -->\n|\Z)", markdown, _re.DOTALL)
+            for m in _re.finditer(
+                r"<!-- docxtor:(?P<id>s\d+) -->\n(?P<text>.*?)"
+                r"(?=\n<!-- docxtor:s\d+ -->\n|\Z)",
+                markdown,
+                _re.DOTALL,
+            )
         }
         if strict:
             expected = {s.id for s in self._segments}
