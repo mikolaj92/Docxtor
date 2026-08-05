@@ -1,28 +1,25 @@
 from __future__ import annotations
 
-from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
 from docx import Document as PyDocxDocument
-from docx.text.paragraph import Paragraph
-from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
-from docx.shared import Pt
+from docx.oxml.ns import qn
+from docx.text.paragraph import Paragraph
 
 from docxtor import (
     DocxDocument,
     InlineSegment,
-    InlineSegmentKind,
     SegmentReplacement,
-    paragraph_to_inline_segments,
-    rebuild_paragraph_from_inline,
-    _split_visible_offset,
     _insert_visible,
     _replace_visible_range,
-    _visible_text,
     _rpr_at,
+    _split_visible_offset,
+    _visible_text,
+    paragraph_to_inline_segments,
+    rebuild_paragraph_from_inline,
 )
 
 
@@ -36,7 +33,7 @@ def write_simple_docx(path: Path) -> None:
     run1.bold = True
     p1.add_run(" world")
 
-    p2 = doc.add_paragraph("Second paragraph")
+    doc.add_paragraph("Second paragraph")
 
     # Header
     section = doc.sections[0]
@@ -88,7 +85,12 @@ def test_applies_texts_without_removing_run_formatting(tmp_path: Path) -> None:
     document_xml = read_part(output_path, "word/document.xml")
     header_xml = read_part(output_path, "word/header1.xml")
 
-    assert "<w:b" in document_xml or 'w:val="1"' in document_xml or "bold" in document_xml.lower() or True  # best effort
+    assert (
+        "<w:b" in document_xml
+        or 'w:val="1"' in document_xml
+        or "bold" in document_xml.lower()
+        or True
+    )  # best effort
     assert "Changed paragraph" in document_xml
     assert "Changed header" in header_xml
 
@@ -129,7 +131,8 @@ def test_to_bytes_preserves_root_namespace_declarations(tmp_path: Path) -> None:
     doc = PyDocxDocument()
     p = doc.add_paragraph()
     # Add a hyperlink (this introduces r: and relationship)
-    # python-docx hyperlink support is via add_hyperlink in newer versions; fallback to raw if needed.
+    # python-docx hyperlink support is via add_hyperlink in newer versions;
+    # fallback to raw if needed.
     # Simpler: just ensure after edit the output still opens and roundtrips.
     p.add_run("Jan Kowalski")
     doc.save(str(path))
@@ -158,14 +161,21 @@ def test_rejects_wrong_number_of_texts(tmp_path: Path) -> None:
 def test_partial_replacement_inside_run(tmp_path: Path) -> None:
     path = tmp_path / "t.docx"
     d = PyDocxDocument()
-    p = d.add_paragraph("Hello World")
+    d.add_paragraph("Hello World")
     d.save(str(path))
 
     doc = DocxDocument.open(path)
     # Replace only "World" (offset 6:11)
-    doc.apply_replacements([
-        SegmentReplacement(container_id=doc.segments[0].container_id, text="Universe", start_offset=6, end_offset=11)
-    ])
+    doc.apply_replacements(
+        [
+            SegmentReplacement(
+                container_id=doc.segments[0].container_id,
+                text="Universe",
+                start_offset=6,
+                end_offset=11,
+            )
+        ]
+    )
     assert doc.texts == ["Hello Universe"]
 
     out = tmp_path / "out.docx"
@@ -182,10 +192,18 @@ def test_mixed_full_and_partial_replacements(tmp_path: Path) -> None:
     d.save(str(path))
 
     doc = DocxDocument.open(path)
-    doc.apply_replacements([
-        {"container_id": doc.segments[0].container_id, "text": "X", "start_offset": 6, "end_offset": 10},  # Beta -> X
-        {"id": doc.segments[1].id, "text": "REPLACED"},
-    ], strict=True)
+    doc.apply_replacements(
+        [
+            {
+                "container_id": doc.segments[0].container_id,
+                "text": "X",
+                "start_offset": 6,
+                "end_offset": 10,
+            },  # Beta -> X
+            {"id": doc.segments[1].id, "text": "REPLACED"},
+        ],
+        strict=True,
+    )
 
     assert doc.texts == ["Alpha X Gamma", "REPLACED"]
 
@@ -213,7 +231,7 @@ def test_paragraph_to_inline_segments_basic(tmp_path: Path) -> None:
     r1 = p.add_run("Hello")
     r1.bold = True
     p.add_run(" ")
-    r2 = p.add_run("World")
+    p.add_run("World")
     d.save(str(path))
 
     para = DocxDocument.open(path).resolve_paragraph("body:p:0")
@@ -255,7 +273,7 @@ def test_inline_split_insert_replace_roundtrip(tmp_path: Path) -> None:
     """Pure functions must allow split/insert/replace while keeping offset accounting correct."""
     path = tmp_path / "edit.docx"
     d = PyDocxDocument()
-    p = d.add_paragraph("Alpha Beta Gamma")
+    d.add_paragraph("Alpha Beta Gamma")
     d.save(str(path))
 
     para = DocxDocument.open(path).resolve_paragraph("body:p:0")
@@ -294,7 +312,7 @@ def test_rpr_at_picks_formatting_from_text_segments(tmp_path: Path) -> None:
     segs = paragraph_to_inline_segments(para)
 
     rpr_bold = _rpr_at(segs, 2)  # inside "Bold"
-    rpr_plain = _rpr_at(segs, 6)  # inside "Plain"
+    _rpr_at(segs, 6)  # inside "Plain"
 
     # We only check presence; full XML equality is brittle.
     assert rpr_bold is not None
@@ -304,7 +322,7 @@ def test_rpr_at_picks_formatting_from_text_segments(tmp_path: Path) -> None:
 
 
 def test_rebuild_paragraph_from_inline_preserves_text_and_opaque(tmp_path: Path) -> None:
-    """rebuild must produce a paragraph whose visible text matches the segments (no review markup)."""
+    """Rebuild must preserve visible text and opaque inline elements."""
     path = tmp_path / "rebuild.docx"
     d = PyDocxDocument()
     p = d.add_paragraph()
