@@ -256,6 +256,10 @@ def _run_segments(run: Any) -> list[InlineSegment]:
         )
     return result
 
+def _paragraph_visible_text(paragraph: Paragraph) -> str:
+    """Return visible paragraph text, including nested inline content controls."""
+    return _visible_text(paragraph_to_inline_segments(paragraph))
+
 
 def paragraph_to_inline_segments(paragraph: Paragraph) -> list[InlineSegment]:
     """Canonical decomposition of a python-docx Paragraph into ordered InlineSegments.
@@ -419,7 +423,7 @@ class DocxDocument:
 
                 paragraphs_by_container[cid] = para
 
-                text = "".join(run.text for run in para.runs)
+                text = _paragraph_visible_text(para)
                 run_indices = [ri for ri, run in enumerate(para.runs) if run.text] if para.runs else []
 
                 if text:

@@ -6,6 +6,7 @@ from zipfile import ZipFile
 
 import pytest
 from docx import Document as PyDocxDocument
+from docx.text.paragraph import Paragraph
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.shared import Pt
@@ -380,3 +381,39 @@ def test_get_indexed_paragraphs_includes_sdt_body_paragraph(tmp_path: Path) -> N
     assert "w okresie obowiązywania Umowy" in doc.texts
     assert doc.resolve_paragraph("body:p:1") is not None
     assert doc.resolve_paragraph("body:p:1").text == "w okresie obowiązywania Umowy"
+
+
+def _append_nested_inline_sdt(paragraph: Paragraph, text: str) -> None:
+    """Append text inside nested inline w:sdt elements within one w:p."""
+    outer = OxmlElement("w:sdt")
+    outer.append(OxmlElement("w:sdtPr"))
+    outer_content = OxmlElement("w:sdtContent")
+    inner = OxmlElement("w:sdt")
+    inner.append(OxmlElement("w:sdtPr"))
+    inner_content = OxmlElement("w:sdtContent")
+    run = OxmlElement("w:r")
+    text_node = OxmlElement("w:t")
+    text_node.text = text
+    run.append(text_node)
+    inner_content.append(run)
+    inner.append(inner_content)
+    outer_content.append(inner)
+    outer.append(outer_content)
+    paragraph._p.append(outer)
+
+
+def test_segments_include_nested_inline_sdt_text(tmp_path: Path) -> None:
+    """Inline SDT runs must remain visible in the paragraph segment text."""
+    path = tmp_path / "inline-sdt.docx"
+    source = PyDocxDocument()
+    paragraph = source.add_paragraph("Celem przetwarzania jest ")
+    _append_nested_inline_sdt(paragraph, "realizacja Umowy Podstawowej")
+    source.save(str(path))
+
+    assert PyDocxDocument(str(path)).paragraphs[0].text == "Celem przetwarzania jest "
+
+    doc = DocxDocument.open(path)
+
+    assert doc.segments[0].text == (
+        "Celem przetwarzania jest realizacja Umowy Podstawowej"
+    )
