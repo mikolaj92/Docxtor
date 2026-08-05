@@ -18,6 +18,10 @@ W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W_P = qn("w:p")
 W_R = qn("w:r")
 W_T = qn("w:t")
+W_SDT = qn("w:sdt")
+W_SDT_CONTENT = qn("w:sdtContent")
+W_TBL = qn("w:tbl")
+
 
 
 @dataclass(frozen=True)
@@ -320,6 +324,34 @@ def rebuild_paragraph_from_inline(paragraph: Paragraph, segments: list[InlineSeg
         elif seg.kind == "opaque" and seg.element is not None:
             parent.append(copy.deepcopy(seg.element))
 
+def _iter_paragraph_elements(container: Any) -> list[Any]:
+    """Collect w:p elements in document order, including those nested in w:sdt.
+
+    python-docx's ``.paragraphs`` only returns direct ``w:p`` children and therefore
+    omits content-control (``w:sdt`` / ``w:sdtContent``) paragraphs. Tables are left
+    to the caller's existing table walk so global ordering stays unchanged.
+    """
+    result: list[Any] = []
+
+    def walk(element: Any) -> None:
+        for child in element:
+            tag = child.tag
+            if tag == W_P:
+                result.append(child)
+            elif tag == W_SDT:
+                for content in child.iterchildren(W_SDT_CONTENT):
+                    walk(content)
+            # Nested tables are handled by the dedicated table enumeration path.
+
+    walk(container)
+    return result
+
+
+def _paragraphs_from_container(container_element: Any, parent: Any) -> list[Paragraph]:
+    """Wrap collected paragraph elements as python-docx Paragraph proxies."""
+    return [Paragraph(p, parent) for p in _iter_paragraph_elements(container_element)]
+
+
 @dataclass
 class _ParaRef:
     """Internal mapping from our segment to python-docx paragraph + metadata."""
@@ -415,19 +447,30 @@ class DocxDocument:
 
                 global_paragraph_index += 1
 
-        # Body
-        add_paragraphs(list(doc.paragraphs), "body")
+        # Body (include w:sdt/w:sdtContent paragraphs omitted by python-docx)
+        add_paragraphs(_paragraphs_from_container(doc.element.body, doc._body), "body")
 
         # Tables
         for ti, table in enumerate(doc.tables):
             for ri, row in enumerate(table.rows):
                 for ci, cell in enumerate(row.cells):
-                    add_paragraphs(list(cell.paragraphs), f"table:{ti}:r:{ri}:c:{ci}")
+                    add_paragraphs(
+                        _paragraphs_from_container(cell._tc, cell),
+                        f"table:{ti}:r:{ri}:c:{ci}",
+                    )
 
         # Headers / Footers
         for si, section in enumerate(doc.sections):
-            add_paragraphs(list(section.header.paragraphs), f"header:{si}")
-            add_paragraphs(list(section.footer.paragraphs), f"footer:{si}")
+            header = section.header
+            footer = section.footer
+            add_paragraphs(
+                _paragraphs_from_container(header._element, header),
+                f"header:{si}",
+            )
+            add_paragraphs(
+                _paragraphs_from_container(footer._element, footer),
+                f"footer:{si}",
+            )
 
         instance = cls(doc=doc, segments=segments, refs=refs)
         instance._paragraphs_by_index = paragraphs_by_index

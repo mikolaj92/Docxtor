@@ -7,6 +7,7 @@ from zipfile import ZipFile
 import pytest
 from docx import Document as PyDocxDocument
 from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 from docx.shared import Pt
 
 from docxtor import (
@@ -324,3 +325,58 @@ def test_rebuild_paragraph_from_inline_preserves_text_and_opaque(tmp_path: Path)
     # Re-decompose and check
     fresh = paragraph_to_inline_segments(para)
     assert _visible_text(fresh) == "NEW\tMe"
+
+
+def _insert_sdt_paragraph(doc: PyDocxDocument, text: str) -> None:
+    """Insert a body-level w:sdt wrapping a single paragraph before sectPr."""
+    sdt = OxmlElement("w:sdt")
+    sdt.append(OxmlElement("w:sdtPr"))
+    content = OxmlElement("w:sdtContent")
+    p = OxmlElement("w:p")
+    run = OxmlElement("w:r")
+    t = OxmlElement("w:t")
+    t.text = text
+    run.append(t)
+    p.append(run)
+    content.append(p)
+    sdt.append(content)
+
+    body = doc.element.body
+    sect_pr = body.find(qn("w:sectPr"))
+    if sect_pr is None:
+        body.append(sdt)
+    else:
+        body.insert(list(body).index(sect_pr), sdt)
+
+
+def test_get_indexed_paragraphs_includes_sdt_body_paragraph(tmp_path: Path) -> None:
+    """Body paragraphs nested in w:sdt/w:sdtContent must keep order and indices.
+
+    Regression for issue #3: python-docx Document.paragraphs omits SDT content,
+    which dropped Talex Art. 28 duration text from Dike DOCXParser.
+    """
+    path = tmp_path / "sdt.docx"
+    source = PyDocxDocument()
+    source.add_paragraph("Before SDT")
+    _insert_sdt_paragraph(source, "w okresie obowiązywania Umowy")
+    source.add_paragraph("After SDT")
+    source.save(str(path))
+
+    # Baseline: python-docx itself still hides the nested paragraph.
+    assert [p.text for p in PyDocxDocument(str(path)).paragraphs] == [
+        "Before SDT",
+        "After SDT",
+    ]
+
+    doc = DocxDocument.open(path)
+    indexed = doc.get_indexed_paragraphs()
+    body_rows = [(i, cid, para.text) for i, cid, para in indexed if cid.startswith("body:")]
+
+    assert body_rows == [
+        (0, "body:p:0", "Before SDT"),
+        (1, "body:p:1", "w okresie obowiązywania Umowy"),
+        (2, "body:p:2", "After SDT"),
+    ]
+    assert "w okresie obowiązywania Umowy" in doc.texts
+    assert doc.resolve_paragraph("body:p:1") is not None
+    assert doc.resolve_paragraph("body:p:1").text == "w okresie obowiązywania Umowy"
