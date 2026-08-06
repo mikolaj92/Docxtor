@@ -106,9 +106,10 @@ class PdfDocument:
             raise DocumentError("Nie udało się zapisać PDF: zmieniła się liczba stron.")
 
         try:
-            if _requires_document_text_reflow(source_pages, self.pages):
-                return _render_reflowed_text_pdf(self.pages)
-
+            # Prefer layout-preserving edits on the original pages:
+            # 1) in-place redaction/overlay for localized replacements
+            # 2) per-page text rebuild when redaction is unsafe or structure changed
+            # 3) full flowing rebuild only when edited text cannot fit the original pages
             pdf = fitz.open(stream=self.source_bytes, filetype="pdf")
             for page_index, (source_text, anonymized_text) in enumerate(
                 zip(source_pages, self.pages, strict=True)
@@ -117,8 +118,14 @@ class PdfDocument:
                     continue
 
                 page = pdf[page_index]
-                if not _redact_page_changes(page, source_text, anonymized_text):
-                    _replace_page_with_text(page, anonymized_text)
+                if (
+                    not _requires_page_text_rebuild(source_text, anonymized_text)
+                    and _redact_page_changes(page, source_text, anonymized_text)
+                ):
+                    continue
+
+                if not _replace_page_with_text(page, anonymized_text):
+                    return _render_reflowed_text_pdf(self.pages)
 
             return pdf.tobytes(garbage=4, deflate=True)
         except DocumentError:
@@ -232,13 +239,6 @@ def _changed_text_spans(source_text: str, anonymized_text: str) -> list[_TextCha
             )
         )
     return changes
-
-
-def _requires_document_text_reflow(source_pages: list[str], target_pages: list[str]) -> bool:
-    return any(
-        _requires_page_text_rebuild(source_text, target_text)
-        for source_text, target_text in zip(source_pages, target_pages, strict=True)
-    )
 
 
 def _requires_page_text_rebuild(source_text: str, target_text: str) -> bool:
@@ -468,10 +468,11 @@ def _redaction_font_size(rect: fitz.Rect) -> float:
     return max(5, min(10, rect.height * 0.7))
 
 
-def _replace_page_with_text(page, text: str) -> None:
+def _replace_page_with_text(page, text: str) -> bool:
+    """Replace a page's text layer in place. Returns False when text does not fit."""
     page.add_redact_annot(page.rect, fill=(1, 1, 1))
     page.apply_redactions()
-    _insert_page_text(page, text)
+    return _insert_page_text(page, text)
 
 
 def _render_text_pdf(pages: list[str]) -> bytes:
@@ -576,14 +577,22 @@ def _text_width(text: str, font: fitz.Font) -> float:
     return font.text_length(text, fontsize=TEXT_FONT_SIZE)
 
 
-def _insert_page_text(page, text: str) -> None:
+def _insert_page_text(page, text: str) -> bool:
+    """Insert page text. Returns True when all text fits the page box."""
     target = fitz.Rect(
         page.rect.x0 + PAGE_MARGIN,
         page.rect.y0 + PAGE_MARGIN,
         page.rect.x1 - PAGE_MARGIN,
         page.rect.y1 - PAGE_MARGIN,
     )
-    page.insert_textbox(target, text or "", align=fitz.TEXT_ALIGN_LEFT, **_text_insert_kwargs())
+    # PyMuPDF: non-negative residual height means the full string fit.
+    residual = page.insert_textbox(
+        target,
+        text or "",
+        align=fitz.TEXT_ALIGN_LEFT,
+        **_text_insert_kwargs(),
+    )
+    return residual >= 0
 
 
 def _text_insert_kwargs() -> dict:
