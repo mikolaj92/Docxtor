@@ -15,7 +15,7 @@ Early library. The public API is small, but not stable yet.
 | --- | --- | --- | --- |
 | TXT/Markdown/text files | yes | same text format when known | Decodes UTF-8, UTF-16, CP1250, and Latin-1 fallback. |
 | DOCX | yes | DOCX | High-fidelity editing powered by `python-docx` (the standard library for Microsoft's .docx format). Stable `container_id` + `paragraph_index`, whole-segment and offset-based partial replacements with run splitting. |
-| PDF | text layer only | PDF | Patches original pages when edits fit; rebuilds the PDF as flowing text when edits require reflow. OCR is not bundled. |
+| PDF | text layer only | PDF | Layout-preserving redaction/overlays when possible; per-page rebuild next; full text reflow only if content no longer fits. OCR is not bundled. |
 
 `load_document` detects the document kind from bytes first, then falls back to
 MIME type and file extension.
@@ -115,12 +115,18 @@ uv run pytest
   OCR-required error.
 - PDF output is best-effort because PDF is fixed-layout, not an editable text
   document.
-- Small PDF edits that fit the original text rectangles are applied on top of
-  original pages.
-- PDF edits that insert text, expand replacements, or need reflow rebuild the
-  PDF as flowing text. Page count may shrink or grow.
-- If changed PDF text cannot be located safely, Docxtor fails closed for that
-  page by rebuilding the page text instead of leaking the original text.
+- Layout-preserving path (preferred): localized replacements are applied with
+  redaction/overlay boxes on the original pages so page count and positions
+  stay stable (typical anonymization labels such as `<PERSON>` / `****`).
+- If a change cannot be located safely for redaction, that page is rebuilt in
+  place (white-out + new text layer) instead of leaking the original text.
+- Full flowing rebuild is a last resort when edited text no longer fits the
+  original page boxes (large inserts/expansions). Page count may then shrink
+  or grow, and original geometry is not preserved.
+- Exact glyph metrics, fonts, columns, tables, headers/footers, and complex
+  multi-column layouts are not guaranteed after any non-trivial edit.
+- Non-ASCII redaction labels may be rendered as `****` when a matching Unicode
+  font is unavailable for the overlay.
 
 ## License
 

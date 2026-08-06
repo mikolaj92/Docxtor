@@ -56,6 +56,34 @@ def _blank_pdf_bytes() -> bytes:
     return output.getvalue()
 
 
+def _multipage_anonymization_pdf_bytes(page_count: int = 30) -> bytes:
+    """Dense multi-page fixture similar to anonymization round-trips."""
+    output = BytesIO()
+    pdf = canvas.Canvas(output, pagesize=A4)
+    for index in range(page_count):
+        if index:
+            pdf.showPage()
+        pdf.setFont("Helvetica", 11)
+        page_no = index + 1
+        lines = [
+            f"Page {page_no} of {page_count}. Contract between Jan Kowalski and ACME Sp. z o.o.",
+            f"PESEL 44051401359 appears on page {page_no}. Email: jan.kowalski@example.com",
+            "Address: ul. Testowa 12, 00-001 Warszawa. Phone +48 514 222 333.",
+            "Account PL61 1140 2004 0000 3102 1234 5678 remains confidential.",
+            (
+                "Additional body text for density. Lorem ipsum dolor sit amet, "
+                "consectetur adipiscing elit."
+            ),
+            f"Closing clause on page {page_no} with reference ID REF-{page_no:04d}.",
+        ]
+        y = 800
+        for line in lines:
+            pdf.drawString(48, y, line)
+            y -= 16
+    pdf.save()
+    return output.getvalue()
+
+
 def _positioned_pdf_bytes(*lines: str) -> bytes:
     pdf = fitz.open()
     page = pdf.new_page(width=595, height=842)
@@ -202,6 +230,44 @@ def test_pdf_write_keeps_original_page_count() -> None:
     assert "<PERSON>" in output_text
     assert "Jan Kowalski" not in output_text
     assert "Anna Nowak" not in output_text
+
+
+def test_pdf_anonymization_round_trip_preserves_page_count() -> None:
+    """PDF→PDF anonymization keeps page count (no ReportLab-style reflow)."""
+    page_count = 30
+    data = _multipage_anonymization_pdf_bytes(page_count)
+    document = load_document("fixture.pdf", PDF_MIME, data)
+
+    assert len(document.segments) == page_count
+    assert _pdf_page_count(data) == page_count
+
+    anonymized_texts = [
+        (
+            text.replace("Jan Kowalski", "<PERSON>")
+            .replace("44051401359", "****")
+            .replace("jan.kowalski@example.com", "<EMAIL>")
+            .replace("+48 514 222 333", "<PHONE>")
+            .replace("PL61 1140 2004 0000 3102 1234 5678", "<ACCOUNT>")
+        )
+        for text in document.texts
+    ]
+    document.apply_texts(anonymized_texts)
+    output = document_to_bytes(document, "fixture.pdf")
+    output_text = _pdf_text(output.data)
+
+    assert output.filename == "fixture.anonimizowany.pdf"
+    assert output.content_type == PDF_MIME
+    assert output.data.startswith(b"%PDF")
+    assert _pdf_page_count(output.data) == page_count
+    assert "Jan Kowalski" not in output_text
+    assert "44051401359" not in output_text
+    assert "jan.kowalski@example.com" not in output_text
+    assert "+48 514 222 333" not in output_text
+    assert "PL61 1140 2004 0000 3102 1234 5678" not in output_text
+    assert "<PERSON>" in output_text or "****" in output_text
+    # Page-local content should still map to the original page index.
+    assert "Page 1 of 30" in fitz.open(stream=output.data, filetype="pdf")[0].get_text()
+    assert "Page 30 of 30" in fitz.open(stream=output.data, filetype="pdf")[29].get_text()
 
 
 def test_pdf_write_redacts_changed_occurrence_by_offset() -> None:
