@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
@@ -279,6 +280,58 @@ def test_pdf_write_redacts_changed_occurrence_by_offset() -> None:
 
     assert "<PERSON>" in output_text
     assert output_text.count("Jan Kowalski") == 1
+
+
+def test_pdf_write_redacts_bracketed_labels_in_place() -> None:
+    """Longer [OSOBA_1]-style labels use in-place redaction (no reflow)."""
+    # Source is shorter than the label — previously forced whole-document reflow.
+    data = _pdf_bytes("Jan signed the contract with ACME.")
+    document = load_document("input.pdf", PDF_MIME, data)
+    document.apply_texts([document.texts[0].replace("Jan", "[OSOBA_1]")])
+    output = document_to_bytes(document, "input.pdf")
+    output_text = _pdf_text(output.data)
+    # Redaction text may wrap inside a narrow source rect; join for matching.
+    compact_text = re.sub(r"\s+", "", output_text)
+
+    assert _pdf_page_count(output.data) == 1
+    assert "[OSOBA_1]" in compact_text or "****" in output_text
+    assert re.search(r"\bJan\b", output_text) is None
+    assert "signed the contract with ACME" in output_text
+
+
+def test_pdf_label_style_anonymization_preserves_page_count() -> None:
+    """labels-style replacements keep page count like mask/angle redaction."""
+    page_count = 30
+    data = _multipage_anonymization_pdf_bytes(page_count)
+    document = load_document("fixture.pdf", PDF_MIME, data)
+
+    anonymized_texts = [
+        (
+            text.replace("Jan Kowalski", "[OSOBA_1]")
+            .replace("44051401359", "[PESEL_1]")
+            .replace("jan.kowalski@example.com", "[EMAIL_1]")
+            .replace("+48 514 222 333", "[PHONE_1]")
+            .replace("PL61 1140 2004 0000 3102 1234 5678", "[KONTO_1]")
+        )
+        for text in document.texts
+    ]
+    document.apply_texts(anonymized_texts)
+    output = document_to_bytes(document, "fixture.pdf")
+    output_text = _pdf_text(output.data)
+
+    assert _pdf_page_count(output.data) == page_count
+    assert "Jan Kowalski" not in output_text
+    assert "44051401359" not in output_text
+    assert "jan.kowalski@example.com" not in output_text
+    assert "+48 514 222 333" not in output_text
+    assert "PL61 1140 2004 0000 3102 1234 5678" not in output_text
+    assert (
+        "[OSOBA_1]" in output_text
+        or "[PESEL_1]" in output_text
+        or "****" in output_text
+    )
+    assert "Page 1 of 30" in fitz.open(stream=output.data, filetype="pdf")[0].get_text()
+    assert "Page 30 of 30" in fitz.open(stream=output.data, filetype="pdf")[29].get_text()
 
 
 def test_pdf_write_rebuilds_page_when_text_is_inserted() -> None:
