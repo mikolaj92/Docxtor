@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from enum import StrEnum
@@ -16,6 +17,8 @@ A4_HEIGHT = 842
 PAGE_MARGIN = 48
 TEXT_FONT_SIZE = 10
 TEXT_LINE_HEIGHT = 12.5
+# labels-style placeholders, e.g. [OSOBA_1], [PESEL_2], [FIRMA_Ą]
+_BRACKETED_LABEL_RE = re.compile(r"\[[A-ZĄĆĘŁŃÓŚŹŻ][A-ZĄĆĘŁŃÓŚŹŻ0-9_]*\]")
 UNICODE_FONT_CANDIDATES = (
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/dejavu/DejaVuSans.ttf",
@@ -267,7 +270,13 @@ def _requires_page_text_rebuild(source_text: str, target_text: str) -> bool:
 
 
 def _looks_like_redaction_target(text: str) -> bool:
-    return "****" in text or ("<" in text and ">" in text)
+    # Treat mask/angle placeholders and labels-style [TOKEN] markers as in-place
+    # redaction targets so longer replacements do not force full-page reflow.
+    return (
+        "****" in text
+        or ("<" in text and ">" in text)
+        or _BRACKETED_LABEL_RE.search(text) is not None
+    )
 
 
 def _replacement_requires_reflow(
