@@ -13,12 +13,12 @@ Early library. The public API is small, but not stable yet.
 ## Supported Formats
 | Format | Read | Write | Notes |
 | --- | --- | --- | --- |
-| TXT/Markdown/text files | yes | same text format when known | Decodes UTF-8, UTF-16, CP1250, and Latin-1 fallback. |
+| TXT/Markdown/text files | yes | same text format when known | Decodes UTF-8, UTF-16, CP1250, or Latin-1 input. |
 | DOCX | yes | DOCX | High-fidelity editing powered by `python-docx` (the standard library for Microsoft's .docx format). Stable `container_id` + `paragraph_index`, whole-segment and offset-based partial replacements with run splitting. |
 | PDF | text layer only | PDF | Layout-preserving redaction/overlays when possible; per-page rebuild next; full text reflow only if content no longer fits. OCR is not bundled. |
 
-`load_document` detects the document kind from bytes first, then falls back to
-MIME type and file extension.
+`load_document` identifies the document kind from bytes first, then consults
+the MIME type and file extension as secondary signals.
 
 ## Installation
 
@@ -37,16 +37,19 @@ uv add git+https://github.com/mikolaj92/Docxtor.git
 ## Basic Usage
 
 ```python
-from docxtor import DOCX_MIME, document_to_bytes, load_document
+from docxtor import DocxDocument, SegmentReplacement, document_to_bytes
 
-document = load_document("input.docx", DOCX_MIME, input_bytes)
-
-updated_texts = [
-    text.replace("old", "new")
-    for text in document.texts
-]
-
-document.apply_texts(updated_texts)
+document = DocxDocument.open("input.docx")
+document.apply_replacements(
+    [
+        SegmentReplacement(
+            container_id=segment.container_id,
+            text=segment.text.replace("old", "new"),
+        )
+        for segment in document.segments
+    ],
+    strict=True,
+)
 output = document_to_bytes(document, "input.docx")
 
 output.filename      # input.anonimizowany.docx
@@ -54,13 +57,8 @@ output.content_type  # application/vnd.openxmlformats-officedocument.wordprocess
 output.data          # bytes
 ```
 
-All loaded documents expose the same editing surface:
-
-```python
-document.texts
-document.segments
-document.apply_texts([...])
-```
+Each replacement targets a stable segment identifier. Offset-based partial
+replacements are available when a whole segment should not be rewritten.
 
 ## Type Detection
 
@@ -77,23 +75,6 @@ if detection.kind == DocumentKind.DOCX:
     ...
 ```
 
-## DOCX Markdown Bridge
-
-DOCX documents can be exported to marker-based Markdown, edited, then applied
-back to the original document structure.
-
-```python
-from docxtor import DocxDocument
-
-document = DocxDocument.open("input.docx")
-markdown = document.to_markdown()
-
-# Keep docxtor markers intact.
-edited_markdown = markdown.replace("old", "new")
-
-document.apply_markdown(edited_markdown)
-document.save_docx("output.docx")
-```
 
 ## Development
 
@@ -154,7 +135,7 @@ Key features:
 - `SegmentReplacement` for structured edits (full segment or sub-range by character offsets).
 - `apply_replacements(..., strict=True)` — fail-closed on unknown targets or bad offsets.
 - Run splitting for partial replacements inside paragraphs (keeps surrounding run formatting where possible).
-- Backward compatible: `apply_texts([...])`, `apply_markdown(...)`, and legacy dict form still work.
+- Structured `SegmentReplacement` records and `apply_replacements(..., strict=True)` are the canonical DOCX editing path.
 
 Example with offsets (similar to `WriteTarget` style used in Temida/Posejdon):
 
@@ -176,14 +157,15 @@ doc.apply_replacements([
     )
 ], strict=True)
 
-# Or full segment by id
+# Or replace a whole segment by its stable identifier
 doc.apply_replacements([
-    {"id": "s1", "text": "New second paragraph"},
+    SegmentReplacement(
+        container_id="body:p:1",
+        text="New second paragraph",
+    ),
 ], strict=True)
 
 doc.save_docx("output.docx")
 ```
 
 `apply_replacements(..., strict=True)` raises on unknown targets or structural drift.
-
-Legacy paths (`apply_texts`, `apply_markdown`, whole-segment dicts) remain supported for simple cases (e.g. anonimizator3000-style flows).
