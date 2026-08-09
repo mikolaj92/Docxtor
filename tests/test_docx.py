@@ -233,13 +233,13 @@ def test_mixed_full_and_partial_replacements(tmp_path: Path) -> None:
     doc = DocxDocument.open(path)
     doc.apply_replacements(
         [
-            {
-                "container_id": doc.segments[0].container_id,
-                "text": "X",
-                "start_offset": 6,
-                "end_offset": 10,
-            },  # Beta -> X
-            {"id": doc.segments[1].id, "text": "REPLACED"},
+            SegmentReplacement(
+                container_id=doc.segments[0].container_id,
+                text="X",
+                start_offset=6,
+                end_offset=10,
+            ),  # Beta -> X
+            SegmentReplacement(id=doc.segments[1].id, text="REPLACED"),
         ],
         strict=True,
     )
@@ -255,7 +255,9 @@ def test_strict_unknown_target_raises(tmp_path: Path) -> None:
 
     doc = DocxDocument.open(path)
     with pytest.raises(ValueError):
-        doc.apply_replacements([{"container_id": "body:p:999", "text": "no"}], strict=True)
+        doc.apply_replacements(
+            [SegmentReplacement(container_id="body:p:999", text="no")], strict=True
+        )
 # ------------------------------------------------------------------
 # Tests for canonical mechanical surface (InlineSegment + pure functions)
 # These are the primitives reviewkit (and others) must delegate to.
