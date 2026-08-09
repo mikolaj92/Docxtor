@@ -72,13 +72,23 @@ def test_extracts_docx_text_segments(tmp_path: Path) -> None:
     assert any("header:" in c for c in cids)
 
 
-def test_applies_texts_without_removing_run_formatting(tmp_path: Path) -> None:
+def test_applies_replacements_without_removing_run_formatting(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
     write_docx_with_formatting(input_path)
 
     doc = DocxDocument.open(input_path)
-    doc.apply_texts(["Hello there", "Changed paragraph", "Changed header"])
+    doc.apply_replacements(
+        [
+            SegmentReplacement(container_id=segment.container_id, text=text)
+            for segment, text in zip(
+                doc.segments,
+                ["Hello there", "Changed paragraph", "Changed header"],
+                strict=True,
+            )
+        ],
+        strict=True,
+    )
     doc.save_docx(output_path)
 
     # python-docx preserves run properties on the first run of the paragraph
@@ -103,20 +113,31 @@ def test_docx_round_trip_in_memory(tmp_path: Path) -> None:
     write_docx(input_path)
 
     doc = DocxDocument.open_bytes(input_path.read_bytes())
-    doc.apply_texts(["Hello bytes", "Second bytes", "Header bytes"])
+    doc.apply_replacements(
+        [
+            SegmentReplacement(container_id=segment.container_id, text=text)
+            for segment, text in zip(
+                doc.segments,
+                ["Hello bytes", "Second bytes", "Header bytes"],
+                strict=True,
+            )
+        ],
+        strict=True,
+    )
     output_doc = DocxDocument.open_bytes(doc.to_bytes())
 
     assert output_doc.texts == ["Hello bytes", "Second bytes", "Header bytes"]
 
 
-def test_applies_markdown_with_segment_markers(tmp_path: Path) -> None:
+def test_applies_replacement_by_segment_id(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
     write_docx(input_path)
 
     doc = DocxDocument.open(input_path)
-    markdown = doc.to_markdown()
-    doc.apply_markdown(markdown.replace("Second paragraph", "Second changed"))
+    doc.apply_replacements(
+        [SegmentReplacement(id=doc.segments[1].id, text="Second changed")], strict=True
+    )
     doc.save_docx(output_path)
 
     document_xml = read_part(output_path, "word/document.xml")
@@ -138,20 +159,38 @@ def test_to_bytes_preserves_root_namespace_declarations(tmp_path: Path) -> None:
     doc.save(str(path))
 
     d = DocxDocument.open_bytes(path.read_bytes())
-    d.apply_texts(["****"])
+    d.apply_replacements(
+        [SegmentReplacement(container_id=d.segments[0].container_id, text="****")], strict=True
+    )
 
     # Re-open and check it is still a valid docx with our change
     reopened = DocxDocument.open_bytes(d.to_bytes())
     assert reopened.texts == ["****"]
 
 
-def test_rejects_wrong_number_of_texts(tmp_path: Path) -> None:
+def test_strict_rejects_invalid_replacement_offsets(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
     write_docx(input_path)
 
     doc = DocxDocument.open(input_path)
-    with pytest.raises(ValueError, match="expected .* segments, got"):
-        doc.apply_texts(["only one"])
+    original = doc.texts
+    target = doc.segments[0].container_id
+
+    for start, end in [(-1, 1), (0, 100), (5, 5), (6, 5)]:
+        with pytest.raises(ValueError, match="invalid replacement offsets"):
+            doc.apply_replacements(
+                [
+                    SegmentReplacement(
+                        container_id=target,
+                        text="bad",
+                        start_offset=start,
+                        end_offset=end,
+                    )
+                ],
+                strict=True,
+            )
+
+    assert doc.texts == original
 
 
 # ------------------------------------------------------------------

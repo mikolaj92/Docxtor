@@ -21,6 +21,7 @@ from docxtor import (
     DocumentError,
     DocumentKind,
     PdfExtractionMode,
+    SegmentReplacement,
     detect_document_type,
     document_to_bytes,
     load_document,
@@ -154,7 +155,13 @@ def test_load_docx_document_and_write_docx_bytes(tmp_path: Path) -> None:
     write_docx(input_path)
 
     document = load_document("input.docx", DOCX_MIME, input_path.read_bytes())
-    document.apply_texts(["One", "Two", "Three"])
+    document.apply_replacements(
+        [
+            SegmentReplacement(container_id=segment.container_id, text=text)
+            for segment, text in zip(document.segments, ["One", "Two", "Three"], strict=True)
+        ],
+        strict=True,
+    )
     output = document_to_bytes(document, "input.docx")
 
     assert output.filename == "input.anonimizowany.docx"
