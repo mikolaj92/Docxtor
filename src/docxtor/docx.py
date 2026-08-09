@@ -769,8 +769,17 @@ class DocxDocument:
         ref = self._refs[index]
         para = ref.paragraph
         full = "".join(r.text for r in para.runs)
+        if start is None and end is None:
+            self._replace_full_segment(index, replacement)
+            return
+
         s = 0 if start is None else start
         e = len(full) if end is None else end
+        if not 0 <= s < e <= len(full):
+            raise ValueError(
+                f"invalid replacement offsets for segment {ref.container_id}: "
+                f"expected 0 <= start < end <= {len(full)}, got {s}:{e}"
+            )
 
         if s == 0 and e == len(full):
             self._replace_full_segment(index, replacement)
