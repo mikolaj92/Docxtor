@@ -289,6 +289,13 @@ def test_paragraph_to_inline_segments_basic(tmp_path: Path) -> None:
     assert segs[2].text == "World"
 
 
+def test_paragraph_to_inline_segments_empty_paragraph_returns_no_segments() -> None:
+    paragraph = PyDocxDocument().add_paragraph()
+
+    assert paragraph.text == ""
+    assert paragraph_to_inline_segments(paragraph) == []
+
+
 def test_paragraph_to_inline_segments_with_opaque(tmp_path: Path) -> None:
     """Tabs and breaks must become opaque segments with visible width for offset math."""
     path = tmp_path / "opaque.docx"

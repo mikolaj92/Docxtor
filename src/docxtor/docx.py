@@ -286,9 +286,6 @@ def paragraph_to_inline_segments(paragraph: Paragraph) -> list[InlineSegment]:
                 element=copy.deepcopy(child),
             )
         )
-    if not segments:
-        # Match reviewkit fallback: whole paragraph text as one text segment.
-        segments = [InlineSegment("text", paragraph.text)]
     return segments
 
 
