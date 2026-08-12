@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from zipfile import ZipFile
 
 import pytest
@@ -142,6 +143,75 @@ def test_applies_replacement_by_segment_id(tmp_path: Path) -> None:
 
     document_xml = read_part(output_path, "word/document.xml")
     assert "Second changed" in document_xml
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        {"container_id": "body:p:0", "text": "legacy dictionary"},
+        SimpleNamespace(container_id="body:p:0", text="duck typed"),
+        "not a replacement",
+        None,
+    ],
+)
+def test_apply_replacements_rejects_non_segment_replacements(
+    tmp_path: Path, replacement: object
+) -> None:
+    input_path = tmp_path / "input.docx"
+    write_docx(input_path)
+    doc = DocxDocument.open(input_path)
+
+    with pytest.raises(
+        TypeError, match="replacements must contain only SegmentReplacement instances"
+    ):
+        doc.apply_replacements([replacement])  # type: ignore[list-item]
+
+
+def test_apply_targets_normalizes_compatibility_inputs_before_delegation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = tmp_path / "input.docx"
+    write_docx(input_path)
+    doc = DocxDocument.open(input_path)
+    captured: list[tuple[list[SegmentReplacement], bool]] = []
+
+    def capture(replacements: list[SegmentReplacement], *, strict: bool = False) -> None:
+        captured.append((replacements, strict))
+
+    monkeypatch.setattr(doc, "apply_replacements", capture)
+    doc.apply_targets(
+        [
+            {
+                "container_id": "body:p:0",
+                "text": 123,
+                "start_offset": 1,
+                "end_offset": 2,
+            },
+            SimpleNamespace(
+                container_id=None,
+                segment_id="s1",
+                replacement_text="duck typed",
+                start_offset=None,
+                end_offset=None,
+            ),
+        ],
+        strict=True,
+    )
+
+    assert captured == [
+        (
+            [
+                SegmentReplacement(
+                    container_id="body:p:0",
+                    text="123",
+                    start_offset=1,
+                    end_offset=2,
+                ),
+                SegmentReplacement(id="s1", text="duck typed"),
+            ],
+            True,
+        )
+    ]
 
 
 def test_to_bytes_preserves_root_namespace_declarations(tmp_path: Path) -> None:

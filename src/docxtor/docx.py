@@ -557,20 +557,36 @@ class DocxDocument:
 
         This is the bridge for ReplacementPlan.write_targets.
         """
-        normalized: list[dict[str, Any] | SegmentReplacement] = []
-        for t in targets:
-            if isinstance(t, (dict, SegmentReplacement)):
-                normalized.append(t)
-            else:
-                # duck-type WriteTarget-like
-                d = {
-                    "container_id": getattr(t, "container_id", None),
-                    "id": getattr(t, "segment_id", None),
-                    "text": getattr(t, "text", getattr(t, "replacement_text", "")),
-                    "start_offset": getattr(t, "start_offset", None),
-                    "end_offset": getattr(t, "end_offset", None),
-                }
-                normalized.append(d)
+        normalized: list[SegmentReplacement] = []
+        for target in targets:
+            if isinstance(target, SegmentReplacement):
+                normalized.append(target)
+                continue
+
+            if isinstance(target, dict):
+                normalized.append(
+                    SegmentReplacement(
+                        container_id=target.get("container_id"),
+                        id=target.get("id"),
+                        text=str(target.get("text", "")),
+                        start_offset=target.get("start_offset"),
+                        end_offset=target.get("end_offset"),
+                    )
+                )
+                continue
+
+            # duck-type WriteTarget-like
+            normalized.append(
+                SegmentReplacement(
+                    container_id=getattr(target, "container_id", None),
+                    id=getattr(target, "segment_id", None),
+                    text=str(
+                        getattr(target, "text", getattr(target, "replacement_text", ""))
+                    ),
+                    start_offset=getattr(target, "start_offset", None),
+                    end_offset=getattr(target, "end_offset", None),
+                )
+            )
         self.apply_replacements(normalized, strict=strict)
     def to_markdown(self) -> str:
         blocks = [f"<!-- docxtor:{s.id} -->\n{s.text}" for s in self._segments]
@@ -629,14 +645,14 @@ class DocxDocument:
                 f"placeholder {placeholder!r} not found in segment {container_id}"
             )
         end = start + len(placeholder)
-        self.apply_targets(
+        self.apply_replacements(
             [
-                {
-                    "container_id": container_id,
-                    "text": replacement,
-                    "start_offset": start,
-                    "end_offset": end,
-                }
+                SegmentReplacement(
+                    container_id=container_id,
+                    text=replacement,
+                    start_offset=start,
+                    end_offset=end,
+                )
             ],
             strict=True,
         )
@@ -654,37 +670,25 @@ class DocxDocument:
 
     def apply_replacements(
         self,
-        replacements: list[dict[str, Any] | SegmentReplacement],
+        replacements: list[SegmentReplacement],
         *,
         strict: bool = False,
     ) -> None:
         by_container = {r.container_id: i for i, r in enumerate(self._segments)}
         by_id = {r.id: i for i, r in enumerate(self._segments)}
 
-        for rep in replacements:
-            if isinstance(rep, SegmentReplacement):
-                idx = self._find_index(rep, by_container, by_id, strict)
-                if idx is None:
-                    continue
-                self._apply_to_paragraph(idx, rep.text, rep.start_offset, rep.end_offset)
-                continue
-
-            # legacy / dict form
-            idx = None
-            if "container_id" in rep:
-                idx = by_container.get(str(rep["container_id"]))
-            elif "id" in rep:
-                idx = by_id.get(str(rep["id"]))
-
+        for replacement in replacements:
+            if not isinstance(replacement, SegmentReplacement):
+                raise TypeError("replacements must contain only SegmentReplacement instances")
+            idx = self._find_index(replacement, by_container, by_id, strict)
             if idx is None:
-                if strict:
-                    raise ValueError(f"unknown target: {rep.get('container_id') or rep.get('id')}")
                 continue
-
-            text = str(rep.get("text", ""))
-            start = rep.get("start_offset")
-            end = rep.get("end_offset")
-            self._apply_to_paragraph(idx, text, start, end)
+            self._apply_to_paragraph(
+                idx,
+                replacement.text,
+                replacement.start_offset,
+                replacement.end_offset,
+            )
     def apply_markdown(self, markdown: str, *, strict: bool = True) -> None:
         import re as _re
         by_id = {
