@@ -803,9 +803,10 @@ class DocxDocument:
         ranges = self._build_run_ranges(para)
         affected = [r for r in ranges if r[1] >= s and r[2] <= e and r[2] > r[1]]
         if not affected:
-            # fallback
-            self._replace_full_segment(index, replacement)
-            return
+            raise ValueError(
+                f"could not map replacement offsets to runs for segment "
+                f"{ref.container_id}: {s}:{e}"
+            )
 
         first = True
         for r in affected:

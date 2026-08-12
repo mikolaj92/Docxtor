@@ -293,6 +293,34 @@ def test_partial_replacement_inside_run(tmp_path: Path) -> None:
     assert back.texts == ["Hello Universe"]
 
 
+def test_partial_replacement_fails_closed_when_no_runs_are_affected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "t.docx"
+    d = PyDocxDocument()
+    d.add_paragraph("Hello World")
+    d.save(str(path))
+
+    doc = DocxDocument.open(path)
+    target = doc.segments[0].container_id
+    monkeypatch.setattr(doc, "_build_run_ranges", lambda paragraph: [])
+
+    with pytest.raises(ValueError, match="could not map replacement offsets to runs"):
+        doc.apply_replacements(
+            [
+                SegmentReplacement(
+                    container_id=target,
+                    text="Universe",
+                    start_offset=6,
+                    end_offset=11,
+                )
+            ]
+        )
+
+    assert doc.texts == ["Hello World"]
+    assert doc.resolve_paragraph(target).text == "Hello World"  # type: ignore[union-attr]
+
+
 def test_mixed_full_and_partial_replacements(tmp_path: Path) -> None:
     path = tmp_path / "t.docx"
     d = PyDocxDocument()
