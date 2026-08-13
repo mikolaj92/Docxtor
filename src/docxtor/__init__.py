@@ -1,3 +1,5 @@
+__version__ = "0.4.2"
+
 from .common import (
     DOCX_MIME,
     MD_MIME,
@@ -31,6 +33,7 @@ from .pdf import PdfDocument, PdfExtractionMode
 from .text import PlainTextDocument
 
 __all__ = [
+    "__version__",
     "DOCX_MIME",
     "MD_MIME",
     "PDF_MIME",
