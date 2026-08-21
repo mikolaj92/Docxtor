@@ -581,3 +581,187 @@ def test_segments_include_nested_inline_sdt_text(tmp_path: Path) -> None:
     assert doc.segments[0].text == (
         "Celem przetwarzania jest realizacja Umowy Podstawowej"
     )
+
+
+def _write_minimal_docx(path: Path, document_xml: str) -> None:
+    from zipfile import ZIP_DEFLATED, ZipFile
+
+    ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+    rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+    office_rel = (
+        "http://schemas.openxmlformats.org/officeDocument/2006/"
+        "relationships/officeDocument"
+    )
+    main_ct = (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml."
+        "document.main+xml"
+    )
+    rels_ct = "application/vnd.openxmlformats-package.relationships+xml"
+    with ZipFile(path, mode="w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "[Content_Types].xml",
+            (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                f'<Types xmlns="{ct_ns}">'
+                f'<Default Extension="rels" ContentType="{rels_ct}"/>'
+                '<Default Extension="xml" ContentType="application/xml"/>'
+                f'<Override PartName="/word/document.xml" ContentType="{main_ct}"/>'
+                "</Types>"
+            ),
+        )
+        archive.writestr(
+            "_rels/.rels",
+            (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                f'<Relationships xmlns="{rel_ns}">'
+                f'<Relationship Id="rId1" Type="{office_rel}" '
+                'Target="word/document.xml"/>'
+                "</Relationships>"
+            ),
+        )
+        archive.writestr("word/document.xml", document_xml)
+
+
+def test_indexes_vml_txbx_content_as_own_segment(tmp_path: Path) -> None:
+    """Floating VML text boxes must not be silence (#26)."""
+    path = tmp_path / "vml-box.docx"
+    _write_minimal_docx(
+        path,
+        """
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Widoczny akapit.</w:t></w:r></w:p>
+    <w:p>
+      <w:r>
+        <w:pict xmlns:v="urn:schemas-microsoft-com:vml">
+          <v:shape>
+            <v:textbox>
+              <w:txbxContent>
+                <w:p><w:r><w:t>Ukryta klauzula.</w:t></w:r></w:p>
+              </w:txbxContent>
+            </v:textbox>
+          </v:shape>
+        </w:pict>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>
+""".strip(),
+    )
+
+    doc = DocxDocument.open(path)
+    texts = list(doc.texts)
+    cids = [s.container_id for s in doc.segments]
+
+    assert "Widoczny akapit." in texts
+    assert "Ukryta klauzula." in texts
+    box = next(s for s in doc.segments if s.container_id and s.container_id.startswith("txbx:"))
+    assert box.text == "Ukryta klauzula."
+    assert box.container_id == "txbx:0:p:0"
+    assert doc.resolve_paragraph("txbx:0:p:0") is not None
+    assert any(cid and cid.startswith("txbx:") for cid in cids)
+
+
+def test_ignores_empty_decorative_textbox(tmp_path: Path) -> None:
+    path = tmp_path / "empty-box.docx"
+    _write_minimal_docx(
+        path,
+        """
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Widoczny akapit.</w:t></w:r></w:p>
+    <w:p>
+      <w:r>
+        <w:pict xmlns:v="urn:schemas-microsoft-com:vml">
+          <v:shape>
+            <v:textbox>
+              <w:txbxContent><w:p/></w:txbxContent>
+            </v:textbox>
+          </v:shape>
+        </w:pict>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>
+""".strip(),
+    )
+
+    doc = DocxDocument.open(path)
+    assert doc.texts == ["Widoczny akapit."]
+    assert all(
+        s.container_id is None or not s.container_id.startswith("txbx:")
+        for s in doc.segments
+    )
+
+
+def test_indexes_drawingml_wps_txbx(tmp_path: Path) -> None:
+    path = tmp_path / "wps-box.docx"
+    _write_minimal_docx(
+        path,
+        """
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+            xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+  <w:body>
+    <w:p><w:r><w:t>Nagłówek umowy.</w:t></w:r></w:p>
+    <w:p>
+      <w:r>
+        <w:drawing>
+          <wps:txbx>
+            <w:txbxContent>
+              <w:p><w:r><w:t>Ramka DrawingML.</w:t></w:r></w:p>
+            </w:txbxContent>
+          </wps:txbx>
+        </w:drawing>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>
+""".strip(),
+    )
+
+    doc = DocxDocument.open(path)
+    assert "Nagłówek umowy." in doc.texts
+    assert "Ramka DrawingML." in doc.texts
+    box = next(s for s in doc.segments if s.container_id and s.container_id.startswith("txbx:"))
+    assert box.container_id == "txbx:0:p:0"
+    assert box.text == "Ramka DrawingML."
+
+
+def test_apply_replacements_edits_textbox_segment(tmp_path: Path) -> None:
+    path = tmp_path / "edit-box.docx"
+    out = tmp_path / "edit-box-out.docx"
+    _write_minimal_docx(
+        path,
+        """
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Widoczny akapit.</w:t></w:r></w:p>
+    <w:p>
+      <w:r>
+        <w:pict xmlns:v="urn:schemas-microsoft-com:vml">
+          <v:shape>
+            <v:textbox>
+              <w:txbxContent>
+                <w:p><w:r><w:t>Stara klauzula.</w:t></w:r></w:p>
+              </w:txbxContent>
+            </v:textbox>
+          </v:shape>
+        </w:pict>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>
+""".strip(),
+    )
+
+    doc = DocxDocument.open(path)
+    doc.apply_replacements(
+        [SegmentReplacement(container_id="txbx:0:p:0", text="Nowa klauzula.")],
+        strict=True,
+    )
+    doc.save_docx(str(out))
+
+    reopened = DocxDocument.open(out)
+    box = next(s for s in reopened.segments if s.container_id == "txbx:0:p:0")
+    assert box.text == "Nowa klauzula."
+    assert "Stara klauzula." not in reopened.texts

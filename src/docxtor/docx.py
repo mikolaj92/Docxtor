@@ -20,6 +20,9 @@ W_T = qn("w:t")
 W_SDT = qn("w:sdt")
 W_SDT_CONTENT = qn("w:sdtContent")
 W_TBL = qn("w:tbl")
+W_TXBX_CONTENT = qn("w:txbxContent")
+V_TEXTBOX = "{urn:schemas-microsoft-com:vml}textbox"
+WPS_TXBX = "{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}txbx"
 
 
 @dataclass(frozen=True)
@@ -30,9 +33,11 @@ class TextSegment:
       body:p:0
       header:0:p:0
       table:0:r:0:c:0:p:0   (for table cells)
+      txbx:0:p:0            (floating text box)
 
-    paragraph_index is the global order index (body + tables + headers/footers),
-    counting ALL paragraphs including empty ones for stable addressing.
+    paragraph_index is the global order index (body + tables + headers/footers
+    + text boxes), counting ALL paragraphs including empty ones for stable
+    addressing.
 
     run_indices: indices (within the python-docx paragraph.runs) of runs that
     contributed non-empty text at parse time. Useful for domain anchors.
@@ -208,15 +213,26 @@ def _inline_width(child: Any) -> str:
 
 
 def _descendant_visible_text(element: Any) -> str:
-    """Visible characters contributed by an opaque subtree (for offset accounting)."""
+    """Visible characters contributed by an opaque subtree (for offset accounting).
+
+    Text-box subtrees are excluded: those paragraphs belong to ``txbx:N``
+    containers, not the wrapping body/header run.
+    """
     parts: list[str] = []
-    for node in element.iter():
+
+    def walk(node: Any) -> None:
+        if node is not element and _is_text_box_container(node.tag):
+            return
         if node.tag == qn("w:t") and node.text:
             parts.append(node.text)
         elif node.tag == qn("w:tab"):
             parts.append("\t")
         elif node.tag in (qn("w:br"), qn("w:cr")):
             parts.append("\n")
+        for child in node:
+            walk(child)
+
+    walk(element)
     return "".join(parts)
 
 
@@ -244,11 +260,18 @@ def _run_segments(run: Any) -> list[InlineSegment]:
                 result.append(InlineSegment("text", child.text, copy.deepcopy(rpr)))
             continue
         # Non-text run content (tab, break, drawing, field char, ...)
-        # re-wrapped so rpr survives on re-emit.
+        # re-wrapped so rpr survives on re-emit. Text-box drawings contribute
+        # no body-visible width; their text lives on txbx:N segments.
+        width = (
+            ""
+            if _is_text_box_container(child.tag)
+            or any(_is_text_box_container(n.tag) for n in child.iter())
+            else _inline_width(child)
+        )
         result.append(
             InlineSegment(
                 "opaque",
-                _inline_width(child),
+                width,
                 element=_wrap_run_child(rpr, child),
             )
         )
@@ -323,18 +346,84 @@ def rebuild_paragraph_from_inline(paragraph: Paragraph, segments: list[InlineSeg
         elif seg.kind == "opaque" and seg.element is not None:
             parent.append(copy.deepcopy(seg.element))
 
-def _iter_paragraph_elements(container: Any) -> list[Any]:
+def _local_tag(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _is_text_box_container(tag: str) -> bool:
+    """True for Word/VML/DrawingML text-box wrappers.
+
+    ``w:txbxContent`` is the actual paragraph host. VML ``v:textbox`` and
+    DrawingML ``wps:txbx`` wrap that host; walk into them so a box nested
+    inside a drawing is not silence.
+    """
+    if tag in {W_TXBX_CONTENT, V_TEXTBOX, WPS_TXBX}:
+        return True
+    return _local_tag(tag) in {"txbxContent", "textbox", "txbx"}
+
+
+def _iter_text_box_hosts(root: Any) -> list[Any]:
+    """Return each text-bearing ``w:txbxContent`` (or VML/DrawingML wrapper).
+
+    Nested boxes keep document order. Empty decorative shapes (no descendant
+    ``w:t``) are skipped so they never occupy a ``txbx:N`` slot.
+    """
+    hosts: list[Any] = []
+    seen: set[int] = set()
+
+    def has_text(element: Any) -> bool:
+        for node in element.iter():
+            if _local_tag(node.tag) == "t" and node.text and node.text.strip():
+                return True
+        return False
+
+    for element in root.iter():
+        if not _is_text_box_container(element.tag):
+            continue
+        identity = id(element)
+        if identity in seen:
+            continue
+        if _local_tag(element.tag) != "txbxContent":
+            inner = None
+            for child in element.iter():
+                if child is not element and _local_tag(child.tag) == "txbxContent":
+                    inner = child
+                    break
+            if inner is not None:
+                if id(inner) in seen:
+                    continue
+                if not has_text(inner):
+                    seen.add(id(inner))
+                    continue
+                seen.add(id(inner))
+                hosts.append(inner)
+                continue
+        if not has_text(element):
+            seen.add(identity)
+            continue
+        seen.add(identity)
+        hosts.append(element)
+    return hosts
+
+
+def _iter_paragraph_elements(container: Any, *, skip_text_boxes: bool = False) -> list[Any]:
     """Collect w:p elements in document order, including those nested in w:sdt.
 
     python-docx's ``.paragraphs`` only returns direct ``w:p`` children and therefore
     omits content-control (``w:sdt`` / ``w:sdtContent``) paragraphs. Tables are left
     to the caller's existing table walk so global ordering stays unchanged.
+
+    Floating text boxes (``w:txbxContent``) are a separate container family. The
+    body/header/table walk skips them so boxed paragraphs are not double-counted
+    as body runs; ``_iter_text_box_hosts`` indexes them as ``txbx:N``.
     """
     result: list[Any] = []
 
     def walk(element: Any) -> None:
         for child in element:
             tag = child.tag
+            if skip_text_boxes and _is_text_box_container(tag):
+                continue
             if tag == W_P:
                 result.append(child)
             elif tag == W_SDT:
@@ -346,9 +435,19 @@ def _iter_paragraph_elements(container: Any) -> list[Any]:
     return result
 
 
-def _paragraphs_from_container(container_element: Any, parent: Any) -> list[Paragraph]:
+def _paragraphs_from_container(
+    container_element: Any,
+    parent: Any,
+    *,
+    skip_text_boxes: bool = False,
+) -> list[Paragraph]:
     """Wrap collected paragraph elements as python-docx Paragraph proxies."""
-    return [Paragraph(p, parent) for p in _iter_paragraph_elements(container_element)]
+    return [
+        Paragraph(p, parent)
+        for p in _iter_paragraph_elements(
+            container_element, skip_text_boxes=skip_text_boxes
+        )
+    ]
 
 
 @dataclass
@@ -398,8 +497,10 @@ class DocxDocument:
         refs: list[_ParaRef] = []
 
         # Global paragraph index counts EVERY paragraph in document order
-        # (body, table cells, headers, footers), including empty ones.
-        # This matches the contract expected by dike_docs locator and anchors.
+        # (body, table cells, headers, footers, text boxes), including empty
+        # ones. This matches the contract expected by dike_docs locator and
+        # anchors. Text boxes are appended after headers/footers so documents
+        # without boxes keep existing body/table/header indices.
         global_paragraph_index = 0
         paragraphs_by_index: dict[int, Paragraph] = {}
         paragraphs_by_container: dict[str, Paragraph] = {}
@@ -433,7 +534,7 @@ class DocxDocument:
                             text=text,
                             part=(
                                 "word/document.xml"
-                                if prefix.startswith("body") or prefix.startswith("table")
+                                if prefix.startswith(("body", "table", "txbx"))
                                 else f"word/{prefix.split(':')[0]}.xml"
                             ),
                             index=local_idx,
@@ -454,15 +555,23 @@ class DocxDocument:
 
                 global_paragraph_index += 1
 
-        # Body (include w:sdt/w:sdtContent paragraphs omitted by python-docx)
-        add_paragraphs(_paragraphs_from_container(doc.element.body, doc._body), "body")
+        # Body (include w:sdt/w:sdtContent paragraphs omitted by python-docx).
+        # Skip floating text boxes here; they are indexed as txbx:N below.
+        add_paragraphs(
+            _paragraphs_from_container(
+                doc.element.body, doc._body, skip_text_boxes=True
+            ),
+            "body",
+        )
 
         # Tables
         for ti, table in enumerate(doc.tables):
             for ri, row in enumerate(table.rows):
                 for ci, cell in enumerate(row.cells):
                     add_paragraphs(
-                        _paragraphs_from_container(cell._tc, cell),
+                        _paragraphs_from_container(
+                            cell._tc, cell, skip_text_boxes=True
+                        ),
                         f"table:{ti}:r:{ri}:c:{ci}",
                     )
 
@@ -471,12 +580,25 @@ class DocxDocument:
             header = section.header
             footer = section.footer
             add_paragraphs(
-                _paragraphs_from_container(header._element, header),
+                _paragraphs_from_container(
+                    header._element, header, skip_text_boxes=True
+                ),
                 f"header:{si}",
             )
             add_paragraphs(
-                _paragraphs_from_container(footer._element, footer),
+                _paragraphs_from_container(
+                    footer._element, footer, skip_text_boxes=True
+                ),
                 f"footer:{si}",
+            )
+
+        # Floating text boxes (VML v:textbox / w:txbxContent / DrawingML wps:txbx).
+        # python-docx does not surface these as paragraphs. Index after the
+        # ordinary stories so documents without boxes keep stable body ids.
+        for box_idx, host in enumerate(_iter_text_box_hosts(doc.element)):
+            add_paragraphs(
+                _paragraphs_from_container(host, doc._body, skip_text_boxes=True),
+                f"txbx:{box_idx}",
             )
 
         instance = cls(doc=doc, segments=segments, refs=refs)
@@ -498,7 +620,7 @@ class DocxDocument:
         """Resolve a python-docx Paragraph by stable container_id.
 
         container_id examples: "body:p:0", "body:p:17", "header:0:p:0",
-        "table:0:r:1:c:2:p:0".
+        "table:0:r:1:c:2:p:0", "txbx:0:p:0".
         """
         if not hasattr(self, "_paragraphs_by_container"):
             return None
@@ -513,7 +635,7 @@ class DocxDocument:
         return self._paragraphs_by_index.get(index)
 
     def get_all_paragraphs(self) -> list[Paragraph]:
-        """All paragraphs in document order (body, tables, headers, footers).
+        """All paragraphs in document order (body, tables, headers, footers, boxes).
         Includes empty paragraphs to keep index stable.
         """
         if not hasattr(self, "_paragraphs_by_index") or not self._paragraphs_by_index:
@@ -597,7 +719,7 @@ class DocxDocument:
 
         Returns list of (global_paragraph_index, container_id, python-docx.Paragraph).
         Includes empty paragraphs so that paragraph_index stays in sync with
-        dike/posejdon anchor contracts (body + tables + headers/footers).
+        dike/posejdon anchor contracts (body + tables + headers/footers + boxes).
         This is the canonical source of addressing.
         """
         if not hasattr(self, "_paragraphs_by_index") or not self._paragraphs_by_index:
