@@ -59,6 +59,34 @@ def read_part(path: Path, name: str) -> str:
         return docx.read(name).decode("utf-8")
 
 
+def story_parts(path: Path) -> list[str]:
+    with ZipFile(path) as docx:
+        return sorted(
+            name
+            for name in docx.namelist()
+            if name.startswith(("word/header", "word/footer")) and name.endswith(".xml")
+        )
+
+
+def test_noop_round_trip_does_not_create_missing_header_or_footer_parts(
+    tmp_path: Path,
+) -> None:
+    input_path = tmp_path / "no-stories.docx"
+    output_path = tmp_path / "round-tripped.docx"
+    source = PyDocxDocument()
+    source.add_paragraph("Body only")
+    source.save(input_path)
+    assert story_parts(input_path) == []
+
+    document = DocxDocument.open(input_path)
+    document.save_docx(output_path)
+
+    assert story_parts(output_path) == []
+    reopened = PyDocxDocument(output_path)
+    assert reopened.sections[0]._sectPr.headerReference_lst == []
+    assert reopened.sections[0]._sectPr.footerReference_lst == []
+
+
 def test_extracts_docx_text_segments(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
     write_docx(input_path)
@@ -71,6 +99,35 @@ def test_extracts_docx_text_segments(tmp_path: Path) -> None:
     cids = [s.container_id for s in doc.segments]
     assert "body:p:0" in cids[0]
     assert any("header:" in c for c in cids)
+
+
+def test_explicit_header_and_footer_keep_editable_container_ids(tmp_path: Path) -> None:
+    input_path = tmp_path / "stories.docx"
+    output_path = tmp_path / "edited-stories.docx"
+    source = PyDocxDocument()
+    source.add_paragraph("Body")
+    source.sections[0].header.paragraphs[0].add_run("Old header")
+    source.sections[0].footer.paragraphs[0].add_run("Old footer")
+    source.save(input_path)
+
+    document = DocxDocument.open(input_path)
+    assert [segment.container_id for segment in document.segments] == [
+        "body:p:0",
+        "header:0:p:0",
+        "footer:0:p:0",
+    ]
+
+    document.apply_replacements(
+        [
+            SegmentReplacement(container_id="header:0:p:0", text="New header"),
+            SegmentReplacement(container_id="footer:0:p:0", text="New footer"),
+        ],
+        strict=True,
+    )
+    document.save_docx(output_path)
+
+    reopened = DocxDocument.open(output_path)
+    assert reopened.texts == ["Body", "New header", "New footer"]
 
 
 def test_applies_replacements_without_removing_run_formatting(tmp_path: Path) -> None:
