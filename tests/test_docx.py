@@ -130,6 +130,29 @@ def test_docx_round_trip_in_memory(tmp_path: Path) -> None:
     assert output_doc.texts == ["Hello bytes", "Second bytes", "Header bytes"]
 
 
+def test_noop_round_trip_does_not_materialize_missing_header_or_footer_parts(
+    tmp_path: Path,
+) -> None:
+    # Given: a valid DOCX with body text and no explicit header/footer stories.
+    input_path = tmp_path / "no-stories.docx"
+    output_path = tmp_path / "round-tripped.docx"
+    source = PyDocxDocument()
+    source.add_paragraph("Body text")
+    source.save(str(input_path))
+
+    # When: Docxtor discovers segments and saves without applying changes.
+    DocxDocument.open(input_path).save_docx(output_path)
+
+    # Then: observational discovery has not created new package stories.
+    with ZipFile(output_path) as package:
+        story_parts = {
+            name
+            for name in package.namelist()
+            if name.startswith(("word/header", "word/footer")) and name.endswith(".xml")
+        }
+    assert story_parts == set()
+
+
 def test_applies_replacement_by_segment_id(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"

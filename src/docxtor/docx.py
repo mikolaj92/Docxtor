@@ -450,6 +450,15 @@ def _paragraphs_from_container(
     ]
 
 
+def _existing_header_footer_element(header_footer: Any) -> Any | None:
+    current = header_footer
+    while current is not None:
+        if current._has_definition:
+            return current._definition.element
+        current = current._prior_headerfooter
+    return None
+
+
 @dataclass
 class _ParaRef:
     """Internal mapping from our segment to python-docx paragraph + metadata."""
@@ -579,18 +588,22 @@ class DocxDocument:
         for si, section in enumerate(doc.sections):
             header = section.header
             footer = section.footer
-            add_paragraphs(
-                _paragraphs_from_container(
-                    header._element, header, skip_text_boxes=True
-                ),
-                f"header:{si}",
-            )
-            add_paragraphs(
-                _paragraphs_from_container(
-                    footer._element, footer, skip_text_boxes=True
-                ),
-                f"footer:{si}",
-            )
+            header_element = _existing_header_footer_element(header)
+            if header_element is not None:
+                add_paragraphs(
+                    _paragraphs_from_container(
+                        header_element, header, skip_text_boxes=True
+                    ),
+                    f"header:{si}",
+                )
+            footer_element = _existing_header_footer_element(footer)
+            if footer_element is not None:
+                add_paragraphs(
+                    _paragraphs_from_container(
+                        footer_element, footer, skip_text_boxes=True
+                    ),
+                    f"footer:{si}",
+                )
 
         # Floating text boxes (VML v:textbox / w:txbxContent / DrawingML wps:txbx).
         # python-docx does not surface these as paragraphs. Index after the
