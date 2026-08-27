@@ -23,4 +23,12 @@ def test_package_version_matches_pyproject() -> None:
 def test_package_version_is_ahead_of_mismatched_tag() -> None:
     """v0.4.1 still ships dist 0.4.0; current metadata must not repeat that pin."""
     assert __version__ != "0.4.0"
-    assert tuple(int(part) for part in __version__.split(".")) >= (0, 4, 2)
+    assert tuple(int(part) for part in __version__.split(".")) >= (0, 4, 3)
+
+
+def test_readme_documents_v041_pin_mismatch() -> None:
+    """Consumers must be told not to pin the lying v0.4.1 tag."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "v0.4.1" in readme
+    assert "0.4.0" in readme
+    assert "v0.4.3" in readme

@@ -34,6 +34,9 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git
 ```
 
+Pin `v0.4.3` or later. Tag `v0.4.1` (DocToText → Docxtor rename) still ships
+package version `0.4.0`, so a `v0.4.1` pin installs dist `0.4.0`.
+
 ## Basic Usage
 
 ```python
