@@ -11,11 +11,14 @@ from .common import (
 )
 from .detection import DetectedDocumentType, detect_document_type
 from .docx import (
+    AddressableSpan,
     DocxDocument,
     InlineSegment,
     InlineSegmentKind,
     SegmentReplacement,
+    SpanRole,
     TextSegment,
+    UnsupportedRevisionError,
     _advances_offset,
     _copy_segment,
     _index_at_visible_offset,
@@ -42,6 +45,7 @@ __all__ = [
     "DocumentError",
     "DocumentKind",
     "DetectedDocumentType",
+    "AddressableSpan",
     "DocxDocument",
     "InlineSegment",
     "InlineSegmentKind",
@@ -49,7 +53,9 @@ __all__ = [
     "PdfDocument",
     "PlainTextDocument",
     "SegmentReplacement",
+    "SpanRole",
     "TextSegment",
+    "UnsupportedRevisionError",
     "_advances_offset",
     "_copy_segment",
     "_index_at_visible_offset",

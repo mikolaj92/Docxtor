@@ -360,7 +360,7 @@ def test_partial_replacement_fails_closed_when_no_runs_are_affected(
 
     doc = DocxDocument.open(path)
     target = doc.segments[0].container_id
-    monkeypatch.setattr(doc, "_build_run_ranges", lambda paragraph: [])
+    monkeypatch.setattr("docxtor.docx._writable_units", lambda paragraph: [])
 
     with pytest.raises(ValueError, match="could not map replacement offsets to runs"):
         doc.apply_replacements(

@@ -13,16 +13,30 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
+from .common import DocumentError
+
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W_P = qn("w:p")
 W_R = qn("w:r")
 W_T = qn("w:t")
+W_DEL_TEXT = qn("w:delText")
 W_SDT = qn("w:sdt")
 W_SDT_CONTENT = qn("w:sdtContent")
 W_TBL = qn("w:tbl")
 W_TXBX_CONTENT = qn("w:txbxContent")
 V_TEXTBOX = "{urn:schemas-microsoft-com:vml}textbox"
 WPS_TXBX = "{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}txbx"
+R_ID = qn("r:id")
+
+_TEXT_NODE_TAGS = {W_T, W_DEL_TEXT}
+_UNSUPPORTED_MOVE_TAGS = {
+    "moveFrom",
+    "moveTo",
+    "moveFromRangeStart",
+    "moveFromRangeEnd",
+    "moveToRangeStart",
+    "moveToRangeEnd",
+}
 
 
 @dataclass(frozen=True)
@@ -60,10 +74,47 @@ class SegmentReplacement:
     """
     container_id: str | None = None
     id: str | None = None
+    span_id: str | None = None
     text: str = ""
     start_offset: int | None = None
     end_offset: int | None = None
+
+
+class UnsupportedRevisionError(DocumentError):
+    """Raised when a DOCX uses a revision form that cannot be written in place."""
+
+
+SpanRole = Literal["run", "insertion", "deletion", "hyperlink"]
 InlineSegmentKind = Literal["text", "opaque"]
+
+
+@dataclass(frozen=True)
+class AddressableSpan:
+    """Stable mechanical span inside a paragraph's extracted text.
+
+    ``role`` is the OOXML wrapper that owns the characters:
+    ``run``, ``insertion`` (``w:ins``), ``deletion`` (``w:del`` / ``w:delText``),
+    or ``hyperlink`` (``w:hyperlink``). Nested wrappers keep both identities:
+    a hyperlink inside an insertion is ``role="hyperlink"`` and still carries
+    revision author/date/id.
+
+    Offsets are in the same character space as ``TextSegment.text`` and
+    ``SegmentReplacement`` (including deleted text). Consumers can project an
+    after-changes view or a revision ledger; Docxtor does not.
+    """
+
+    span_id: str
+    container_id: str
+    role: SpanRole
+    text: str
+    start_offset: int
+    end_offset: int
+    paragraph_index: int | None = None
+    revision_id: str | None = None
+    revision_author: str | None = None
+    revision_date: str | None = None
+    hyperlink_anchor: str | None = None
+    hyperlink_rel_id: str | None = None
 
 
 @dataclass
@@ -223,7 +274,7 @@ def _descendant_visible_text(element: Any) -> str:
     def walk(node: Any) -> None:
         if node is not element and _is_text_box_container(node.tag):
             return
-        if node.tag == qn("w:t") and node.text:
+        if node.tag in _TEXT_NODE_TAGS and node.text:
             parts.append(node.text)
         elif node.tag == qn("w:tab"):
             parts.append("\t")
@@ -255,7 +306,7 @@ def _run_segments(run: Any) -> list[InlineSegment]:
         tag = child.tag
         if tag == qn("w:rPr"):
             continue
-        if tag == qn("w:t"):
+        if tag in _TEXT_NODE_TAGS:
             if child.text:
                 result.append(InlineSegment("text", child.text, copy.deepcopy(rpr)))
             continue
@@ -277,9 +328,218 @@ def _run_segments(run: Any) -> list[InlineSegment]:
         )
     return result
 
+@dataclass(frozen=True)
+class _TextUnit:
+    text: str
+    node: Any | None
+    role: SpanRole
+    revision_id: str | None = None
+    revision_author: str | None = None
+    revision_date: str | None = None
+    hyperlink_anchor: str | None = None
+    hyperlink_rel_id: str | None = None
+
+    @property
+    def key(self) -> tuple[object, ...]:
+        return (
+            self.role,
+            self.revision_id,
+            self.revision_author,
+            self.revision_date,
+            self.hyperlink_anchor,
+            self.hyperlink_rel_id,
+        )
+
+
+def _w_get(element: Any, name: str) -> str | None:
+    return element.get(qn(f"w:{name}"))
+
+
+def _wrapper_context(node: Any) -> dict[str, Any]:
+    role: SpanRole = "run"
+    revision_id = revision_author = revision_date = None
+    hyperlink_anchor = hyperlink_rel_id = None
+    for ancestor in node.iterancestors():
+        local = _local_tag(ancestor.tag)
+        if local == "p":
+            break
+        if local == "hyperlink":
+            if role == "run":
+                role = "hyperlink"
+            if hyperlink_anchor is None and hyperlink_rel_id is None:
+                hyperlink_anchor = _w_get(ancestor, "anchor")
+                hyperlink_rel_id = ancestor.get(R_ID)
+        elif local == "ins":
+            if role == "run":
+                role = "insertion"
+            if revision_id is None:
+                revision_id = _w_get(ancestor, "id")
+                revision_author = _w_get(ancestor, "author")
+                revision_date = _w_get(ancestor, "date")
+        elif local == "del":
+            if role == "run":
+                role = "deletion"
+            if revision_id is None:
+                revision_id = _w_get(ancestor, "id")
+                revision_author = _w_get(ancestor, "author")
+                revision_date = _w_get(ancestor, "date")
+    return {
+        "role": role,
+        "revision_id": revision_id,
+        "revision_author": revision_author,
+        "revision_date": revision_date,
+        "hyperlink_anchor": hyperlink_anchor,
+        "hyperlink_rel_id": hyperlink_rel_id,
+    }
+
+
+def _paragraph_units(p_element: Any) -> list[_TextUnit]:
+    """Document-order text contributions inside one paragraph element."""
+    units: list[_TextUnit] = []
+
+    def walk(node: Any) -> None:
+        if node is not p_element and _is_text_box_container(node.tag):
+            return
+        tag = node.tag
+        if tag in _TEXT_NODE_TAGS:
+            units.append(_TextUnit(text=node.text or "", node=node, **_wrapper_context(node)))
+            return
+        if tag == qn("w:tab"):
+            units.append(_TextUnit(text="\t", node=None, **_wrapper_context(node)))
+            return
+        if tag in (qn("w:br"), qn("w:cr")):
+            units.append(_TextUnit(text="\n", node=None, **_wrapper_context(node)))
+            return
+        for child in node:
+            walk(child)
+
+    walk(p_element)
+    return units
+
+
+def _set_text_node(node: Any, text: str) -> None:
+    node.text = text
+    space = qn("xml:space")
+    if text[:1].isspace() or text[-1:].isspace():
+        node.set(space, "preserve")
+    elif space in node.attrib:
+        del node.attrib[space]
+
+
+def _writable_units(p_element: Any) -> list[_TextUnit]:
+    """Text nodes that can receive an in-place character replacement."""
+    return [unit for unit in _paragraph_units(p_element) if unit.node is not None]
+
+
+def _replace_plain_range(p_element: Any, start: int, end: int, replacement: str) -> None:
+    """Replace [start, end) in paragraph plain text without unwrapping OOXML."""
+    units = _paragraph_units(p_element)
+    writable_ids = {id(unit.node) for unit in _writable_units(p_element)}
+    cursor = 0
+    overlapping: list[tuple[_TextUnit, int]] = []
+    for unit in units:
+        unit_start = cursor
+        cursor += len(unit.text)
+        if unit.node is None or id(unit.node) not in writable_ids:
+            continue
+        if unit_start < end and cursor > start and unit.text:
+            overlapping.append((unit, unit_start))
+    if not overlapping:
+        raise ValueError(
+            f"could not map replacement offsets to runs for segment: {start}:{end}"
+        )
+
+    first_unit, first_start = overlapping[0]
+    last_unit, last_start = overlapping[-1]
+    first_node = first_unit.node
+    last_node = last_unit.node
+    first_text = first_node.text or ""
+    last_text = last_node.text or ""
+    prefix = first_text[: max(0, start - first_start)]
+    suffix = last_text[max(0, end - last_start) :]
+    if first_node is last_node:
+        _set_text_node(first_node, prefix + replacement + suffix)
+        return
+    _set_text_node(first_node, prefix + replacement)
+    for unit, _unit_start in overlapping[1:-1]:
+        _set_text_node(unit.node, "")
+    _set_text_node(last_node, suffix)
+
+
+def _paragraph_spans(
+    paragraph: Paragraph, container_id: str, paragraph_index: int
+) -> list[AddressableSpan]:
+    spans: list[AddressableSpan] = []
+    buf: list[str] = []
+    current: _TextUnit | None = None
+    start = 0
+    cursor = 0
+
+    def flush() -> None:
+        nonlocal current, start
+        if current is None:
+            return
+        text = "".join(buf)
+        buf.clear()
+        if not text:
+            current = None
+            return
+        spans.append(
+            AddressableSpan(
+                span_id=f"{container_id}:span:{len(spans)}",
+                container_id=container_id,
+                role=current.role,
+                text=text,
+                start_offset=start,
+                end_offset=start + len(text),
+                paragraph_index=paragraph_index,
+                revision_id=current.revision_id,
+                revision_author=current.revision_author,
+                revision_date=current.revision_date,
+                hyperlink_anchor=current.hyperlink_anchor,
+                hyperlink_rel_id=current.hyperlink_rel_id,
+            )
+        )
+        current = None
+
+    for unit in _paragraph_units(paragraph._p):
+        if not unit.text:
+            continue
+        if current is None:
+            current = unit
+            start = cursor
+        elif unit.key != current.key:
+            flush()
+            current = unit
+            start = cursor
+        buf.append(unit.text)
+        cursor += len(unit.text)
+    flush()
+    return spans
+
+
+def _unsupported_revision_reason(doc: DocxDocumentType) -> str | None:
+    roots: list[Any] = [doc.element]
+    for section in doc.sections:
+        for story in (section.header, section.footer):
+            if not story._has_definition:
+                continue
+            roots.append(story._definition.element)
+    for root in roots:
+        for element in root.iter():
+            local = _local_tag(element.tag)
+            if local in _UNSUPPORTED_MOVE_TAGS:
+                return local
+            if local in {"ins", "del"}:
+                for child in element:
+                    if _local_tag(child.tag) in {"p", "tbl", "tr", "tc"}:
+                        return f"block-{local}"
+    return None
+
+
 def _paragraph_visible_text(paragraph: Paragraph) -> str:
-    """Return visible paragraph text, including nested inline content controls."""
-    return _visible_text(paragraph_to_inline_segments(paragraph))
+    """Return paragraph text including nested ins/del/hyperlink/sdt text nodes."""
+    return "".join(unit.text for unit in _paragraph_units(paragraph._p))
 
 
 def paragraph_to_inline_segments(paragraph: Paragraph) -> list[InlineSegment]:
@@ -373,7 +633,7 @@ def _iter_text_box_hosts(root: Any) -> list[Any]:
 
     def has_text(element: Any) -> bool:
         for node in element.iter():
-            if _local_tag(node.tag) == "t" and node.text and node.text.strip():
+            if _local_tag(node.tag) in {"t", "delText"} and node.text and node.text.strip():
                 return True
         return False
 
@@ -479,6 +739,7 @@ class DocxDocument:
         self._doc = doc
         self._segments = segments
         self._refs = refs  # index-aligned with segments
+        self._spans: list[AddressableSpan] = []
 
     @classmethod
     def open(cls, path: str | Path) -> DocxDocument:
@@ -605,6 +866,7 @@ class DocxDocument:
         instance = cls(doc=doc, segments=segments, refs=refs)
         instance._paragraphs_by_index = paragraphs_by_index
         instance._paragraphs_by_container = paragraphs_by_container
+        instance._spans = instance._collect_spans()
         return instance
     @property
     def segments(self) -> tuple[TextSegment, ...]:
@@ -613,6 +875,10 @@ class DocxDocument:
     @property
     def texts(self) -> list[str]:
         return [s.text for s in self._segments]
+
+    @property
+    def spans(self) -> tuple[AddressableSpan, ...]:
+        return tuple(self._spans)
     # ------------------------------------------------------------------
     # Structure access (generic DOCX addressing - for Temida adapters)
     # ------------------------------------------------------------------
@@ -691,6 +957,7 @@ class DocxDocument:
                     SegmentReplacement(
                         container_id=target.get("container_id"),
                         id=target.get("id"),
+                        span_id=target.get("span_id"),
                         text=str(target.get("text", "")),
                         start_offset=target.get("start_offset"),
                         end_offset=target.get("end_offset"),
@@ -703,6 +970,7 @@ class DocxDocument:
                 SegmentReplacement(
                     container_id=getattr(target, "container_id", None),
                     id=getattr(target, "segment_id", None),
+                    span_id=getattr(target, "span_id", None),
                     text=str(
                         getattr(target, "text", getattr(target, "replacement_text", ""))
                     ),
@@ -761,7 +1029,7 @@ class DocxDocument:
         if para is None:
             raise ValueError(f"no paragraph for container_id {container_id!r}")
 
-        current_text = "".join(r.text for r in para.runs)
+        current_text = _paragraph_visible_text(para)
         start = current_text.find(placeholder)
         if start < 0:
             raise ValueError(
@@ -797,21 +1065,25 @@ class DocxDocument:
         *,
         strict: bool = False,
     ) -> None:
+        if replacements:
+            reason = _unsupported_revision_reason(self._doc)
+            if reason is not None:
+                raise UnsupportedRevisionError(
+                    f"unsupported revision form {reason!r}; "
+                    "refusing to write a partial artifact"
+                )
         by_container = {r.container_id: i for i, r in enumerate(self._segments)}
         by_id = {r.id: i for i, r in enumerate(self._segments)}
 
         for replacement in replacements:
             if not isinstance(replacement, SegmentReplacement):
                 raise TypeError("replacements must contain only SegmentReplacement instances")
-            idx = self._find_index(replacement, by_container, by_id, strict)
+            idx, start, end = self._resolve_replacement(
+                replacement, by_container, by_id, strict
+            )
             if idx is None:
                 continue
-            self._apply_to_paragraph(
-                idx,
-                replacement.text,
-                replacement.start_offset,
-                replacement.end_offset,
-            )
+            self._apply_to_paragraph(idx, replacement.text, start, end)
     def apply_markdown(self, markdown: str, *, strict: bool = True) -> None:
         import re as _re
         by_id = {
@@ -851,6 +1123,21 @@ class DocxDocument:
     # Internal
     # ------------------------------------------------------------------
 
+    def _collect_spans(self) -> list[AddressableSpan]:
+        spans: list[AddressableSpan] = []
+        for ref in self._refs:
+            spans.extend(
+                _paragraph_spans(ref.paragraph, ref.container_id, ref.paragraph_index)
+            )
+        return spans
+
+    def _refresh_after_edit(self, index: int) -> None:
+        ref = self._refs[index]
+        new_text = _paragraph_visible_text(ref.paragraph)
+        old = self._segments[index]
+        self._segments[index] = replace(old, text=new_text)
+        self._spans = self._collect_spans()
+
     def _find_index(
         self,
         rep: SegmentReplacement,
@@ -858,6 +1145,38 @@ class DocxDocument:
         by_id: dict[str, int],
         strict: bool,
     ) -> int | None:
+        idx, _start, _end = self._resolve_replacement(rep, by_container, by_id, strict)
+        return idx
+
+    def _resolve_replacement(
+        self,
+        rep: SegmentReplacement,
+        by_container: dict[str, int],
+        by_id: dict[str, int],
+        strict: bool,
+    ) -> tuple[int | None, int | None, int | None]:
+        if rep.span_id:
+            span = next((s for s in self._spans if s.span_id == rep.span_id), None)
+            if span is None:
+                if strict:
+                    raise ValueError(f"unknown replacement target: {rep.span_id}")
+                return None, None, None
+            idx = by_container.get(span.container_id)
+            if idx is None:
+                if strict:
+                    raise ValueError(f"unknown replacement target: {rep.span_id}")
+                return None, None, None
+            if rep.start_offset is None and rep.end_offset is None:
+                return idx, span.start_offset, span.end_offset
+            local_start = 0 if rep.start_offset is None else rep.start_offset
+            local_end = len(span.text) if rep.end_offset is None else rep.end_offset
+            if not 0 <= local_start < local_end <= len(span.text):
+                raise ValueError(
+                    f"invalid replacement offsets for span {span.span_id}: "
+                    f"expected 0 <= start < end <= {len(span.text)}, "
+                    f"got {local_start}:{local_end}"
+                )
+            return idx, span.start_offset + local_start, span.start_offset + local_end
         if rep.container_id:
             idx = by_container.get(str(rep.container_id))
         elif rep.id:
@@ -866,22 +1185,19 @@ class DocxDocument:
             idx = None
         if idx is None and strict:
             raise ValueError(f"unknown replacement target: {rep.container_id or rep.id}")
-        return idx
+        return idx, rep.start_offset, rep.end_offset
 
     def _replace_full_segment(self, index: int, text: str) -> None:
         ref = self._refs[index]
         para = ref.paragraph
-        if not para.runs:
-            # create one run
-            run = para.add_run(text)
-        else:
-            # replace first run, clear the rest (preserves some formatting on first run)
+        full = _paragraph_visible_text(para)
+        if full:
+            _replace_plain_range(para._p, 0, len(full), text)
+        elif para.runs:
             para.runs[0].text = text
-            for run in para.runs[1:]:
-                run.text = ""
-        # update our view
-        old = self._segments[index]
-        self._segments[index] = replace(old, text=text)
+        else:
+            para.add_run(text)
+        self._refresh_after_edit(index)
 
     def _apply_to_paragraph(
         self,
@@ -892,7 +1208,7 @@ class DocxDocument:
     ) -> None:
         ref = self._refs[index]
         para = ref.paragraph
-        full = "".join(r.text for r in para.runs)
+        full = _paragraph_visible_text(para)
         if start is None and end is None:
             self._replace_full_segment(index, replacement)
             return
@@ -909,41 +1225,8 @@ class DocxDocument:
             self._replace_full_segment(index, replacement)
             return
 
-        # Use run-range logic (adapted from proven posejdon docx_runs)
-        ranges = self._build_run_ranges(para)
-        # split boundaries (right first)
-        for r in reversed(ranges):
-            if r[1] < e < r[2]:
-                self._split_run(para, r[0], e - r[1])
-                break
-        ranges = self._build_run_ranges(para)
-        for r in reversed(ranges):
-            if r[1] < s < r[2]:
-                self._split_run(para, r[0], s - r[1])
-                break
-
-        # now replace the affected runs
-        ranges = self._build_run_ranges(para)
-        affected = [r for r in ranges if r[1] >= s and r[2] <= e and r[2] > r[1]]
-        if not affected:
-            raise ValueError(
-                f"could not map replacement offsets to runs for segment "
-                f"{ref.container_id}: {s}:{e}"
-            )
-
-        first = True
-        for r in affected:
-            run = para.runs[r[0]]
-            if first:
-                run.text = replacement
-                first = False
-            else:
-                run.text = ""
-
-        # refresh our segment text
-        new_text = "".join(r.text for r in para.runs)
-        old = self._segments[index]
-        self._segments[index] = replace(old, text=new_text)
+        _replace_plain_range(para._p, s, e, replacement)
+        self._refresh_after_edit(index)
 
     def _build_run_ranges(self, paragraph: Paragraph) -> list[tuple[int, int, int]]:
         out: list[tuple[int, int, int]] = []
