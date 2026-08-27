@@ -575,22 +575,23 @@ class DocxDocument:
                         f"table:{ti}:r:{ri}:c:{ci}",
                     )
 
-        # Headers / Footers
+        # Headers / Footers. Accessing ``._element`` on an absent or linked
+        # story calls python-docx's get-or-add path and mutates the package.
+        # Only inspect definitions explicitly referenced by this section.
         for si, section in enumerate(doc.sections):
-            header = section.header
-            footer = section.footer
-            add_paragraphs(
-                _paragraphs_from_container(
-                    header._element, header, skip_text_boxes=True
-                ),
-                f"header:{si}",
-            )
-            add_paragraphs(
-                _paragraphs_from_container(
-                    footer._element, footer, skip_text_boxes=True
-                ),
-                f"footer:{si}",
-            )
+            for story_name, story in (
+                ("header", section.header),
+                ("footer", section.footer),
+            ):
+                if not story._has_definition:
+                    continue
+                definition = story._definition
+                add_paragraphs(
+                    _paragraphs_from_container(
+                        definition.element, story, skip_text_boxes=True
+                    ),
+                    f"{story_name}:{si}",
+                )
 
         # Floating text boxes (VML v:textbox / w:txbxContent / DrawingML wps:txbx).
         # python-docx does not surface these as paragraphs. Index after the
