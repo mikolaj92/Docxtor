@@ -1056,6 +1056,7 @@ class DocxDocument:
         texts = list(texts)
         if len(texts) != len(self._segments):
             raise ValueError(f"expected {len(self._segments)} segments, got {len(texts)}")
+        self._require_supported_revisions()
         for i, txt in enumerate(texts):
             self._replace_full_segment(i, txt)
 
@@ -1066,12 +1067,7 @@ class DocxDocument:
         strict: bool = False,
     ) -> None:
         if replacements:
-            reason = _unsupported_revision_reason(self._doc)
-            if reason is not None:
-                raise UnsupportedRevisionError(
-                    f"unsupported revision form {reason!r}; "
-                    "refusing to write a partial artifact"
-                )
+            self._require_supported_revisions()
         by_container = {r.container_id: i for i, r in enumerate(self._segments)}
         by_id = {r.id: i for i, r in enumerate(self._segments)}
 
@@ -1103,6 +1099,8 @@ class DocxDocument:
             if missing or unknown:
                 raise ValueError(f"markdown marker mismatch; missing={missing} unknown={unknown}")
 
+        if any(seg.id in by_id for seg in self._segments):
+            self._require_supported_revisions()
         for i, seg in enumerate(self._segments):
             if seg.id in by_id:
                 self._replace_full_segment(i, by_id[seg.id])
@@ -1122,6 +1120,14 @@ class DocxDocument:
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _require_supported_revisions(self) -> None:
+        reason = _unsupported_revision_reason(self._doc)
+        if reason is not None:
+            raise UnsupportedRevisionError(
+                f"unsupported revision form {reason!r}; "
+                "refusing to write a partial artifact"
+            )
 
     def _collect_spans(self) -> list[AddressableSpan]:
         spans: list[AddressableSpan] = []

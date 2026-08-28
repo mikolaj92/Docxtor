@@ -232,6 +232,31 @@ def test_partial_and_span_replacements_preserve_wrappers(tmp_path: Path) -> None
     assert "Alina" in xml and "Alice" not in xml
 
 
+def test_whole_paragraph_replacement_preserves_single_wrapper(tmp_path: Path) -> None:
+    path = tmp_path / "whole.docx"
+    out = tmp_path / "whole-out.docx"
+    source = PyDocxDocument()
+    paragraph = source.add_paragraph()
+    _append_ins(paragraph, "Alice", bold=True)
+    source.save(str(path))
+
+    doc = DocxDocument.open(path)
+    doc.apply_replacements(
+        [SegmentReplacement(container_id="body:p:0", text="Alina")],
+        strict=True,
+    )
+    doc.save_docx(out)
+
+    reopened = DocxDocument.open(out)
+    assert reopened.texts[0] == "Alina"
+    inserted = _span(reopened, "insertion", "Alina")
+    assert inserted.revision_id == "10"
+    assert inserted.revision_author == "Ann Reviewer"
+    xml = ZipFile(out).read("word/document.xml").decode("utf-8")
+    assert "<w:ins" in xml and 'w:author="Ann Reviewer"' in xml
+    assert "<w:b" in xml
+
+
 def test_toc_hyperlink_keeps_anchor_after_display_text_replace(tmp_path: Path) -> None:
     path = tmp_path / "toc.docx"
     out = tmp_path / "toc-out.docx"
@@ -426,6 +451,10 @@ def test_unsupported_move_from_fails_closed_without_partial_write(tmp_path: Path
     assert list(doc.texts) == original
     assert "Keep me" in ZipFile(path).read("word/document.xml").decode("utf-8")
     assert "CHANGED" not in ZipFile(path).read("word/document.xml").decode("utf-8")
+
+    with pytest.raises(UnsupportedRevisionError, match="moveFrom"):
+        doc.apply_texts(["CHANGED", "migrated"])
+    assert list(doc.texts) == original
 
 
 def test_unsupported_block_level_ins_fails_closed(tmp_path: Path) -> None:
