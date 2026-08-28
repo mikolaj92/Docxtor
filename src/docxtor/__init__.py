@@ -11,6 +11,7 @@ from .common import (
 )
 from .detection import DetectedDocumentType, detect_document_type
 from .docx import (
+    AddressableComment,
     AddressableSpan,
     DocxDocument,
     InlineSegment,
@@ -45,6 +46,7 @@ __all__ = [
     "DocumentError",
     "DocumentKind",
     "DetectedDocumentType",
+    "AddressableComment",
     "AddressableSpan",
     "DocxDocument",
     "InlineSegment",
