@@ -63,6 +63,16 @@ output.data          # bytes
 Each replacement targets a stable segment identifier. Offset-based partial
 replacements are available when a whole segment should not be rewritten.
 
+Text nested in `w:ins`, `w:del` / `w:delText`, and inline `w:hyperlink` is
+addressable through `document.spans`. Each `AddressableSpan` has a stable
+`span_id`, a mechanical `role` (`run`, `insertion`, `deletion`, `hyperlink`),
+and the same character offsets as `TextSegment.text`. Replacing through
+`SegmentReplacement(span_id=...)` or paragraph offsets writes into the
+existing text nodes and keeps the wrappers, `w:rPr`, revision author/date/id,
+and hyperlink anchor/relationship. Unsupported structural revisions such as
+`w:moveFrom` or block-level `w:ins` raise `UnsupportedRevisionError` before
+any partial output is written. Docxtor does not interpret review meaning.
+
 ## Type Detection
 
 ```python
@@ -172,3 +182,20 @@ doc.save_docx("output.docx")
 ```
 
 `apply_replacements(..., strict=True)` raises on unknown targets or structural drift.
+
+Example with nested revision / hyperlink spans:
+
+```python
+from docxtor import DocxDocument, SegmentReplacement, UnsupportedRevisionError
+
+doc = DocxDocument.open("input.docx")
+for span in doc.spans:
+    print(span.span_id, span.role, span.text)
+    # body:p:0:span:1 insertion Alice
+    # body:p:0:span:3 hyperlink contract
+
+doc.apply_replacements(
+    [SegmentReplacement(span_id="body:p:0:span:1", text="Alina")],
+    strict=True,
+)
+```
