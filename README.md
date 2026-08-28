@@ -73,6 +73,16 @@ and hyperlink anchor/relationship. Unsupported structural revisions such as
 `w:moveFrom` or block-level `w:ins` raise `UnsupportedRevisionError` before
 any partial output is written. Docxtor does not interpret review meaning.
 
+Word comment bodies are addressable as `comment:{id}:p:{n}` segments and through
+`document.comments`. Each `AddressableComment` carries the comment id, body text,
+author/initials/date, the story locator and anchored range text when present, and
+`parent_id` for replies named by `commentsExtended.xml`. Replacing comment text
+writes into the existing comment paragraphs and keeps comment IDs, range anchors,
+authorship attributes, and thread sidecar parts (`commentsExtended.xml`,
+`commentsIds.xml`, `people.xml`). Empty comment parts and separator-only notes do
+not become user-authored segments. Unknown comment targets fail before any edit.
+ReviewKit remains responsible for review semantics.
+
 ## Type Detection
 
 ```python

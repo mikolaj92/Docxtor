@@ -6,16 +6,20 @@ from dataclasses import dataclass, replace
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
+from xml.etree import ElementTree
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from docx import Document as PyDocxDocument
 from docx.document import Document as DocxDocumentType
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.opc.packuri import PackURI
+from docx.opc.part import Part
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
 from .common import DocumentError
 
-W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W_P = qn("w:p")
 W_R = qn("w:r")
 W_T = qn("w:t")
@@ -27,6 +31,41 @@ W_TXBX_CONTENT = qn("w:txbxContent")
 V_TEXTBOX = "{urn:schemas-microsoft-com:vml}textbox"
 WPS_TXBX = "{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}txbx"
 R_ID = qn("r:id")
+W14_NS = "http://schemas.microsoft.com/office/word/2010/wordml"
+W15_NS = "http://schemas.microsoft.com/office/word/2012/wordml"
+REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+
+_COMMENTS_EXTENDED_PART = "word/commentsExtended.xml"
+_COMMENTS_IDS_PART = "word/commentsIds.xml"
+_COMMENTS_EXTENSIBLE_PART = "word/commentsExtensible.xml"
+_PEOPLE_PART = "word/people.xml"
+_DOCUMENT_RELS_PART = "word/_rels/document.xml.rels"
+_CONTENT_TYPES_PART = "[Content_Types].xml"
+_THREAD_PARTS = {
+    _COMMENTS_EXTENDED_PART,
+    _COMMENTS_IDS_PART,
+    _COMMENTS_EXTENSIBLE_PART,
+    _PEOPLE_PART,
+}
+_THREAD_REL_BY_TARGET = {
+    "commentsExtended.xml": (
+        "http://schemas.microsoft.com/office/2011/relationships/commentsExtended",
+        "application/vnd.ms-word.commentsExtended+xml",
+    ),
+    "commentsIds.xml": (
+        "http://schemas.microsoft.com/office/2016/relationships/commentsIds",
+        "application/vnd.ms-word.commentsIds+xml",
+    ),
+    "commentsExtensible.xml": (
+        "http://schemas.microsoft.com/office/2018/relationships/commentsExtensible",
+        "application/vnd.ms-word.commentsExtensible+xml",
+    ),
+    "people.xml": (
+        "http://schemas.microsoft.com/office/2011/relationships/people",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.people+xml",
+    ),
+}
 
 _TEXT_NODE_TAGS = {W_T, W_DEL_TEXT}
 _UNSUPPORTED_MOVE_TAGS = {
@@ -65,6 +104,7 @@ class TextSegment:
     paragraph_index: int | None = None
     run_indices: list[int] | None = None
 
+
 @dataclass(frozen=True)
 class SegmentReplacement:
     """Replacement targeting a segment or a sub-range inside it.
@@ -72,6 +112,7 @@ class SegmentReplacement:
     Offsets are in characters of the segment's text.
     If start_offset and end_offset are None -> whole segment.
     """
+
     container_id: str | None = None
     id: str | None = None
     span_id: str | None = None
@@ -115,6 +156,28 @@ class AddressableSpan:
     revision_date: str | None = None
     hyperlink_anchor: str | None = None
     hyperlink_rel_id: str | None = None
+
+
+@dataclass(frozen=True)
+class AddressableComment:
+    """Mechanical Word comment body with stable identity and thread metadata.
+
+    ``container_id`` addresses the comment body paragraph that carries the text
+    (``comment:{id}:p:{n}``). ``locator`` is the story paragraph that hosts the
+    ``w:commentRangeStart`` marker; replies typically have none. Parent/reply
+    identity comes from ``commentsExtended.xml`` when present. Docxtor does not
+    interpret review meaning.
+    """
+
+    comment_id: str
+    container_id: str
+    text: str
+    author: str = ""
+    initials: str | None = None
+    locator: str | None = None
+    anchor_text: str = ""
+    parent_id: str | None = None
+    date: str | None = None
 
 
 @dataclass
@@ -254,6 +317,7 @@ def _replace_visible_range(
         result[index:index] = [s for s in replacement if s.text]
     return result
 
+
 def _inline_width(child: Any) -> str:
     """Visible contribution of a non-text inline child (tab, break, etc.)."""
     if child.tag == qn("w:tab"):
@@ -327,6 +391,7 @@ def _run_segments(run: Any) -> list[InlineSegment]:
             )
         )
     return result
+
 
 @dataclass(frozen=True)
 class _TextUnit:
@@ -445,9 +510,7 @@ def _replace_plain_range(p_element: Any, start: int, end: int, replacement: str)
         if unit_start < end and cursor > start and unit.text:
             overlapping.append((unit, unit_start))
     if not overlapping:
-        raise ValueError(
-            f"could not map replacement offsets to runs for segment: {start}:{end}"
-        )
+        raise ValueError(f"could not map replacement offsets to runs for segment: {start}:{end}")
 
     first_unit, first_start = overlapping[0]
     last_unit, last_start = overlapping[-1]
@@ -518,6 +581,13 @@ def _paragraph_spans(
     return spans
 
 
+def _existing_comments_part(doc: DocxDocumentType) -> Any | None:
+    try:
+        return doc.part.part_related_by(RT.COMMENTS)
+    except KeyError:
+        return None
+
+
 def _unsupported_revision_reason(doc: DocxDocumentType) -> str | None:
     roots: list[Any] = [doc.element]
     for section in doc.sections:
@@ -525,6 +595,9 @@ def _unsupported_revision_reason(doc: DocxDocumentType) -> str | None:
             if not story._has_definition:
                 continue
             roots.append(story._definition.element)
+    comments_part = _existing_comments_part(doc)
+    if comments_part is not None:
+        roots.append(comments_part.element)
     for root in roots:
         for element in root.iter():
             local = _local_tag(element.tag)
@@ -535,6 +608,255 @@ def _unsupported_revision_reason(doc: DocxDocumentType) -> str | None:
                     if _local_tag(child.tag) in {"p", "tbl", "tr", "tc"}:
                         return f"block-{local}"
     return None
+
+
+def _clark(ns: str, local: str) -> str:
+    return f"{{{ns}}}{local}"
+
+
+def _package_part_name(partname: Any) -> str:
+    text = str(partname)
+    return text[1:] if text.startswith("/") else text
+
+
+def _is_thread_part_name(name: str) -> bool:
+    return (
+        name in _THREAD_PARTS
+        or name.startswith("word/_rels/comments")
+        or name.startswith("word/_rels/people")
+    )
+
+
+def _capture_thread_parts(package: Any) -> dict[str, tuple[bytes, str]]:
+    captured: dict[str, tuple[bytes, str]] = {}
+    for part in package.iter_parts():
+        name = _package_part_name(part.partname)
+        if _is_thread_part_name(name):
+            captured[name] = (part.blob, part.content_type)
+    return captured
+
+
+def _ensure_thread_parts(package: Any, captured: dict[str, tuple[bytes, str]]) -> None:
+    if not captured:
+        return
+    document_part = package.main_document_part
+    existing = {_package_part_name(part.partname): part for part in package.iter_parts()}
+    for name, (blob, content_type) in captured.items():
+        if name.startswith("word/_rels/"):
+            continue
+        part = existing.get(name)
+        if part is None:
+            part = Part(PackURI(f"/{name}"), content_type, blob, package)
+            target = name.rsplit("/", 1)[-1]
+            reltype, _ctype = _THREAD_REL_BY_TARGET.get(target, (None, None))
+            if reltype is None:
+                continue
+            document_part.relate_to(part, reltype)
+            existing[name] = part
+        else:
+            part._blob = blob
+
+
+def _restore_thread_sidecars(data: bytes, captured: dict[str, tuple[bytes, str]]) -> bytes:
+    if not captured:
+        return data
+    with ZipFile(BytesIO(data)) as bundle:
+        names = set(bundle.namelist())
+        entries = [(info, bundle.read(info.filename)) for info in bundle.infolist()]
+    missing = {name: blob for name, (blob, _ctype) in captured.items() if name not in names}
+    if not missing:
+        return data
+
+    restored: list[tuple[Any, bytes]] = []
+    for info, blob in entries:
+        if info.filename == _CONTENT_TYPES_PART:
+            blob = _merge_content_type_overrides(blob, missing, captured)
+        elif info.filename == _DOCUMENT_RELS_PART:
+            blob = _merge_document_relationships(blob, missing)
+        restored.append((info, blob))
+    for name, blob in sorted(missing.items()):
+        restored.append((name, blob))
+
+    output = BytesIO()
+    with ZipFile(output, mode="w", compression=ZIP_DEFLATED) as bundle:
+        for info, blob in restored:
+            if isinstance(info, str):
+                bundle.writestr(info, blob)
+            else:
+                bundle.writestr(info, blob)
+    return output.getvalue()
+
+
+def _merge_content_type_overrides(
+    rendered: bytes,
+    missing: dict[str, bytes],
+    captured: dict[str, tuple[bytes, str]],
+) -> bytes:
+    root = ElementTree.fromstring(rendered)
+    have = {override.get("PartName") for override in root.findall(_clark(CT_NS, "Override"))}
+    changed = False
+    for name in missing:
+        part_name = f"/{name}"
+        if part_name in have:
+            continue
+        _blob, content_type = captured[name]
+        override = ElementTree.SubElement(root, _clark(CT_NS, "Override"))
+        override.set("PartName", part_name)
+        override.set("ContentType", content_type)
+        changed = True
+    if not changed:
+        return rendered
+    return ElementTree.tostring(root, encoding="UTF-8", xml_declaration=True)
+
+
+def _merge_document_relationships(rendered: bytes, missing: dict[str, bytes]) -> bytes:
+    root = ElementTree.fromstring(rendered)
+    have_targets = {rel.get("Target") for rel in root.findall(_clark(REL_NS, "Relationship"))}
+    used_ids = {rel.get("Id") for rel in root.findall(_clark(REL_NS, "Relationship"))}
+    next_id = 1
+    changed = False
+    for name in missing:
+        target = name.rsplit("/", 1)[-1]
+        reltype, _ctype = _THREAD_REL_BY_TARGET.get(target, (None, None))
+        if reltype is None or target in have_targets:
+            continue
+        while f"rId{next_id}" in used_ids:
+            next_id += 1
+        rel = ElementTree.SubElement(root, _clark(REL_NS, "Relationship"))
+        rel.set("Id", f"rId{next_id}")
+        rel.set("Type", reltype)
+        rel.set("Target", target)
+        used_ids.add(f"rId{next_id}")
+        have_targets.add(target)
+        next_id += 1
+        changed = True
+    if not changed:
+        return rendered
+    return ElementTree.tostring(root, encoding="UTF-8", xml_declaration=True)
+
+
+def _comment_date_attr(element: Any) -> str | None:
+    return _w_get(element, "date")
+
+
+def _comment_parent_ids(comments_part: Any, package: Any) -> dict[str, str]:
+    parts = {_package_part_name(part.partname): part for part in package.iter_parts()}
+    extended = parts.get(_COMMENTS_EXTENDED_PART)
+    if comments_part is None or extended is None:
+        return {}
+    para_to_comment: dict[str, str] = {}
+    for comment in comments_part.element.findall(qn("w:comment")):
+        comment_id = _w_get(comment, "id")
+        if comment_id is None:
+            continue
+        for paragraph in comment.iter(qn("w:p")):
+            para_id = paragraph.get(f"{{{W14_NS}}}paraId")
+            if para_id:
+                para_to_comment[para_id] = comment_id
+                break
+    if not para_to_comment:
+        return {}
+    try:
+        root = ElementTree.fromstring(extended.blob)
+    except ElementTree.ParseError:
+        return {}
+    parents: dict[str, str] = {}
+    for element in root.iter():
+        if element.tag != _clark(W15_NS, "commentEx"):
+            continue
+        para_id = element.get(_clark(W15_NS, "paraId"))
+        parent_para = element.get(_clark(W15_NS, "paraIdParent"))
+        if not para_id or not parent_para:
+            continue
+        comment_id = para_to_comment.get(para_id)
+        parent_id = para_to_comment.get(parent_para)
+        if comment_id and parent_id and comment_id != parent_id:
+            parents[comment_id] = parent_id
+    return parents
+
+
+def _comment_anchors(
+    paragraphs_by_container: dict[str, Paragraph],
+) -> dict[str, tuple[str, str]]:
+    open_ids: dict[str, list[str]] = {}
+    started_at: dict[str, str] = {}
+    finished: dict[str, tuple[str, str]] = {}
+    for locator, paragraph in paragraphs_by_container.items():
+        if locator.startswith("comment:"):
+            continue
+        p_element = paragraph._p
+        for node in p_element.iter():
+            local = _local_tag(node.tag)
+            if local == "commentRangeStart":
+                comment_id = _w_get(node, "id")
+                if comment_id is None:
+                    continue
+                open_ids.setdefault(comment_id, [])
+                started_at.setdefault(comment_id, locator)
+            elif local == "commentRangeEnd":
+                comment_id = _w_get(node, "id")
+                if comment_id is None or comment_id not in open_ids:
+                    continue
+                finished[comment_id] = (
+                    started_at.get(comment_id, locator),
+                    "".join(open_ids.pop(comment_id)),
+                )
+                started_at.pop(comment_id, None)
+            elif open_ids and node.tag in _TEXT_NODE_TAGS and node.text:
+                for buffer in open_ids.values():
+                    buffer.append(node.text)
+            elif open_ids and node.tag == qn("w:tab"):
+                for buffer in open_ids.values():
+                    buffer.append("\t")
+            elif open_ids and node.tag in (qn("w:br"), qn("w:cr")):
+                for buffer in open_ids.values():
+                    buffer.append("\n")
+    for comment_id, buffer in open_ids.items():
+        finished[comment_id] = (started_at.get(comment_id, ""), "".join(buffer))
+    return finished
+
+
+def _collect_comments(
+    comments_part: Any | None,
+    paragraphs_by_container: dict[str, Paragraph],
+    package: Any,
+) -> list[AddressableComment]:
+    if comments_part is None:
+        return []
+    anchors = _comment_anchors(paragraphs_by_container)
+    parents = _comment_parent_ids(comments_part, package)
+    comments: list[AddressableComment] = []
+    for comment_elm in comments_part.element.findall(qn("w:comment")):
+        comment_id = _w_get(comment_elm, "id")
+        if comment_id is None:
+            continue
+        prefix = f"comment:{comment_id}"
+        texts: list[str] = []
+        first_container: str | None = None
+        for local_idx, paragraph in enumerate(comment_elm.iter(qn("w:p"))):
+            text = "".join(unit.text for unit in _paragraph_units(paragraph))
+            if not text:
+                continue
+            if first_container is None:
+                first_container = f"{prefix}:p:{local_idx}"
+            texts.append(text)
+        if not texts:
+            continue
+        locator, anchor_text = anchors.get(comment_id, (None, ""))
+        comments.append(
+            AddressableComment(
+                comment_id=comment_id,
+                container_id=first_container or f"{prefix}:p:0",
+                text="\n".join(texts),
+                author=_w_get(comment_elm, "author") or "",
+                initials=_w_get(comment_elm, "initials"),
+                locator=locator or None,
+                anchor_text=anchor_text,
+                parent_id=parents.get(comment_id),
+                date=_comment_date_attr(comment_elm),
+            )
+        )
+    return comments
 
 
 def _paragraph_visible_text(paragraph: Paragraph) -> str:
@@ -605,6 +927,7 @@ def rebuild_paragraph_from_inline(paragraph: Paragraph, segments: list[InlineSeg
             parent.append(run)
         elif seg.kind == "opaque" and seg.element is not None:
             parent.append(copy.deepcopy(seg.element))
+
 
 def _local_tag(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
@@ -704,9 +1027,7 @@ def _paragraphs_from_container(
     """Wrap collected paragraph elements as python-docx Paragraph proxies."""
     return [
         Paragraph(p, parent)
-        for p in _iter_paragraph_elements(
-            container_element, skip_text_boxes=skip_text_boxes
-        )
+        for p in _iter_paragraph_elements(container_element, skip_text_boxes=skip_text_boxes)
     ]
 
 
@@ -716,7 +1037,7 @@ class _ParaRef:
 
     id: str
     container_id: str
-    paragraph_index: int
+    paragraph_index: int | None
     paragraph: Paragraph
     part_name: str  # "body", "header:0", "table:0:r:0:c:0", etc.
 
@@ -740,6 +1061,8 @@ class DocxDocument:
         self._segments = segments
         self._refs = refs  # index-aligned with segments
         self._spans: list[AddressableSpan] = []
+        self._comments: list[AddressableComment] = []
+        self._thread_parts: dict[str, tuple[bytes, str]] = {}
 
     @classmethod
     def open(cls, path: str | Path) -> DocxDocument:
@@ -782,9 +1105,7 @@ class DocxDocument:
 
                 text = _paragraph_visible_text(para)
                 run_indices = (
-                    [ri for ri, run in enumerate(para.runs) if run.text]
-                    if para.runs
-                    else []
+                    [ri for ri, run in enumerate(para.runs) if run.text] if para.runs else []
                 )
 
                 if text:
@@ -794,7 +1115,9 @@ class DocxDocument:
                             id=seg_id,
                             text=text,
                             part=(
-                                "word/document.xml"
+                                "word/comments.xml"
+                                if prefix.startswith("comment:")
+                                else "word/document.xml"
                                 if prefix.startswith(("body", "table", "txbx"))
                                 else f"word/{prefix.split(':')[0]}.xml"
                             ),
@@ -816,12 +1139,41 @@ class DocxDocument:
 
                 global_paragraph_index += 1
 
+        def add_comment_paragraphs(paragraphs: list[Paragraph], comment_id: str) -> None:
+            for local_idx, para in enumerate(paragraphs):
+                cid = f"comment:{comment_id}:p:{local_idx}"
+                paragraphs_by_container[cid] = para
+                text = _paragraph_visible_text(para)
+                if not text:
+                    continue
+                seg_id = f"s{len(segments)}"
+                segments.append(
+                    TextSegment(
+                        id=seg_id,
+                        text=text,
+                        part="word/comments.xml",
+                        index=local_idx,
+                        container_id=cid,
+                        paragraph_index=None,
+                        run_indices=[
+                            run_index for run_index, run in enumerate(para.runs) if run.text
+                        ],
+                    )
+                )
+                refs.append(
+                    _ParaRef(
+                        id=seg_id,
+                        container_id=cid,
+                        paragraph_index=None,
+                        paragraph=para,
+                        part_name=f"comment:{comment_id}",
+                    )
+                )
+
         # Body (include w:sdt/w:sdtContent paragraphs omitted by python-docx).
         # Skip floating text boxes here; they are indexed as txbx:N below.
         add_paragraphs(
-            _paragraphs_from_container(
-                doc.element.body, doc._body, skip_text_boxes=True
-            ),
+            _paragraphs_from_container(doc.element.body, doc._body, skip_text_boxes=True),
             "body",
         )
 
@@ -830,9 +1182,7 @@ class DocxDocument:
             for ri, row in enumerate(table.rows):
                 for ci, cell in enumerate(row.cells):
                     add_paragraphs(
-                        _paragraphs_from_container(
-                            cell._tc, cell, skip_text_boxes=True
-                        ),
+                        _paragraphs_from_container(cell._tc, cell, skip_text_boxes=True),
                         f"table:{ti}:r:{ri}:c:{ci}",
                     )
 
@@ -848,9 +1198,7 @@ class DocxDocument:
                     continue
                 definition = story._definition
                 add_paragraphs(
-                    _paragraphs_from_container(
-                        definition.element, story, skip_text_boxes=True
-                    ),
+                    _paragraphs_from_container(definition.element, story, skip_text_boxes=True),
                     f"{story_name}:{si}",
                 )
 
@@ -863,11 +1211,28 @@ class DocxDocument:
                 f"txbx:{box_idx}",
             )
 
+        comments_part = _existing_comments_part(doc)
+        if comments_part is not None:
+            for comment_elm in comments_part.element.findall(qn("w:comment")):
+                comment_id = _w_get(comment_elm, "id")
+                if comment_id is None:
+                    continue
+                add_comment_paragraphs(
+                    _paragraphs_from_container(comment_elm, comments_part),
+                    comment_id,
+                )
+
         instance = cls(doc=doc, segments=segments, refs=refs)
         instance._paragraphs_by_index = paragraphs_by_index
         instance._paragraphs_by_container = paragraphs_by_container
         instance._spans = instance._collect_spans()
+        instance._comments = _collect_comments(
+            comments_part, paragraphs_by_container, doc.part.package
+        )
+        instance._thread_parts = _capture_thread_parts(doc.part.package)
+        _ensure_thread_parts(doc.part.package, instance._thread_parts)
         return instance
+
     @property
     def segments(self) -> tuple[TextSegment, ...]:
         return tuple(self._segments)
@@ -879,6 +1244,11 @@ class DocxDocument:
     @property
     def spans(self) -> tuple[AddressableSpan, ...]:
         return tuple(self._spans)
+
+    @property
+    def comments(self) -> tuple[AddressableComment, ...]:
+        return tuple(self._comments)
+
     # ------------------------------------------------------------------
     # Structure access (generic DOCX addressing - for Temida adapters)
     # ------------------------------------------------------------------
@@ -909,9 +1279,7 @@ class DocxDocument:
             return []
         max_i = max(self._paragraphs_by_index.keys())
         return [
-            self._paragraphs_by_index[i]
-            for i in range(max_i + 1)
-            if i in self._paragraphs_by_index
+            self._paragraphs_by_index[i] for i in range(max_i + 1) if i in self._paragraphs_by_index
         ]
 
     def get_inline_segments(self, container_id: str) -> list[InlineSegment]:
@@ -927,6 +1295,7 @@ class DocxDocument:
         if para is None:
             return []
         return paragraph_to_inline_segments(para)
+
     # ------------------------------------------------------------------
     # High-level target application (WriteTarget style)
     # ------------------------------------------------------------------
@@ -971,14 +1340,13 @@ class DocxDocument:
                     container_id=getattr(target, "container_id", None),
                     id=getattr(target, "segment_id", None),
                     span_id=getattr(target, "span_id", None),
-                    text=str(
-                        getattr(target, "text", getattr(target, "replacement_text", ""))
-                    ),
+                    text=str(getattr(target, "text", getattr(target, "replacement_text", ""))),
                     start_offset=getattr(target, "start_offset", None),
                     end_offset=getattr(target, "end_offset", None),
                 )
             )
         self.apply_replacements(normalized, strict=strict)
+
     def to_markdown(self) -> str:
         blocks = [f"<!-- docxtor:{s.id} -->\n{s.text}" for s in self._segments]
         return "\n\n".join(blocks)
@@ -1032,9 +1400,7 @@ class DocxDocument:
         current_text = _paragraph_visible_text(para)
         start = current_text.find(placeholder)
         if start < 0:
-            raise ValueError(
-                f"placeholder {placeholder!r} not found in segment {container_id}"
-            )
+            raise ValueError(f"placeholder {placeholder!r} not found in segment {container_id}")
         end = start + len(placeholder)
         self.apply_replacements(
             [
@@ -1066,22 +1432,35 @@ class DocxDocument:
         *,
         strict: bool = False,
     ) -> None:
+        for replacement in replacements:
+            if not isinstance(replacement, SegmentReplacement):
+                raise TypeError("replacements must contain only SegmentReplacement instances")
         if replacements:
             self._require_supported_revisions()
         by_container = {r.container_id: i for i, r in enumerate(self._segments)}
         by_id = {r.id: i for i, r in enumerate(self._segments)}
-
+        resolved: list[tuple[int, int | None, int | None, str]] = []
         for replacement in replacements:
-            if not isinstance(replacement, SegmentReplacement):
-                raise TypeError("replacements must contain only SegmentReplacement instances")
-            idx, start, end = self._resolve_replacement(
-                replacement, by_container, by_id, strict
-            )
+            idx, start, end = self._resolve_replacement(replacement, by_container, by_id, strict)
             if idx is None:
                 continue
-            self._apply_to_paragraph(idx, replacement.text, start, end)
+            full = self._segments[idx].text
+            if start is not None or end is not None:
+                s = 0 if start is None else start
+                e = len(full) if end is None else end
+                if not 0 <= s < e <= len(full):
+                    raise ValueError(
+                        f"invalid replacement offsets for segment "
+                        f"{self._refs[idx].container_id}: expected "
+                        f"0 <= start < end <= {len(full)}, got {s}:{e}"
+                    )
+            resolved.append((idx, start, end, replacement.text))
+        for idx, start, end, text in resolved:
+            self._apply_to_paragraph(idx, text, start, end)
+
     def apply_markdown(self, markdown: str, *, strict: bool = True) -> None:
         import re as _re
+
         by_id = {
             m.group("id"): m.group("text").rstrip("\n")
             for m in _re.finditer(
@@ -1110,12 +1489,13 @@ class DocxDocument:
     # ------------------------------------------------------------------
 
     def save_docx(self, path: str | Path) -> None:
-        self._doc.save(str(path))
+        Path(path).write_bytes(self.to_bytes())
 
     def to_bytes(self) -> bytes:
+        _ensure_thread_parts(self._doc.part.package, self._thread_parts)
         buf = BytesIO()
         self._doc.save(buf)
-        return buf.getvalue()
+        return _restore_thread_sidecars(buf.getvalue(), self._thread_parts)
 
     # ------------------------------------------------------------------
     # Internal
@@ -1125,16 +1505,13 @@ class DocxDocument:
         reason = _unsupported_revision_reason(self._doc)
         if reason is not None:
             raise UnsupportedRevisionError(
-                f"unsupported revision form {reason!r}; "
-                "refusing to write a partial artifact"
+                f"unsupported revision form {reason!r}; refusing to write a partial artifact"
             )
 
     def _collect_spans(self) -> list[AddressableSpan]:
         spans: list[AddressableSpan] = []
         for ref in self._refs:
-            spans.extend(
-                _paragraph_spans(ref.paragraph, ref.container_id, ref.paragraph_index)
-            )
+            spans.extend(_paragraph_spans(ref.paragraph, ref.container_id, ref.paragraph_index))
         return spans
 
     def _refresh_after_edit(self, index: int) -> None:
@@ -1143,6 +1520,11 @@ class DocxDocument:
         old = self._segments[index]
         self._segments[index] = replace(old, text=new_text)
         self._spans = self._collect_spans()
+        self._comments = _collect_comments(
+            _existing_comments_part(self._doc),
+            self._paragraphs_by_container,
+            self._doc.part.package,
+        )
 
     def _find_index(
         self,
@@ -1265,6 +1647,7 @@ class DocxDocument:
 # ----------------------------------------------------------------------
 # Helper to expose for advanced users if needed
 # ----------------------------------------------------------------------
+
 
 def _paragraph_text(p: Paragraph) -> str:
     return "".join(r.text for r in p.runs)
