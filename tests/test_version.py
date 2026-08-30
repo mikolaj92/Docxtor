@@ -40,3 +40,11 @@ def test_pypdf_is_not_a_runtime_dependency() -> None:
     assert all("pypdf" not in dep for dep in deps)
     lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
     assert 'name = "pypdf"' not in lock
+
+
+def test_reportlab_is_a_dev_only_dependency() -> None:
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    runtime = data["project"]["dependencies"]
+    dev = data["project"]["optional-dependencies"]["dev"]
+    assert all("reportlab" not in dep for dep in runtime)
+    assert any(dep.startswith("reportlab") for dep in dev)
