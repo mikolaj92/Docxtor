@@ -1177,10 +1177,16 @@ class DocxDocument:
             "body",
         )
 
-        # Tables
+        # Tables. python-docx repeats the same ``cell._tc`` for every grid
+        # column covered by ``w:gridSpan`` (and some merge continuations).
+        # Index each unique XML cell once, at the first column id (#36).
         for ti, table in enumerate(doc.tables):
             for ri, row in enumerate(table.rows):
+                seen_cells: set[object] = set()
                 for ci, cell in enumerate(row.cells):
+                    if cell._tc in seen_cells:
+                        continue
+                    seen_cells.add(cell._tc)
                     add_paragraphs(
                         _paragraphs_from_container(cell._tc, cell, skip_text_boxes=True),
                         f"table:{ti}:r:{ri}:c:{ci}",
