@@ -1533,16 +1533,6 @@ class DocxDocument:
             self._doc.part.package,
         )
 
-    def _find_index(
-        self,
-        rep: SegmentReplacement,
-        by_container: dict[str, int],
-        by_id: dict[str, int],
-        strict: bool,
-    ) -> int | None:
-        idx, _start, _end = self._resolve_replacement(rep, by_container, by_id, strict)
-        return idx
-
     def _resolve_replacement(
         self,
         rep: SegmentReplacement,
@@ -1623,38 +1613,3 @@ class DocxDocument:
         _replace_plain_range(para._p, s, e, replacement)
         self._refresh_after_edit(index)
 
-    def _build_run_ranges(self, paragraph: Paragraph) -> list[tuple[int, int, int]]:
-        out: list[tuple[int, int, int]] = []
-        cur = 0
-        for i, run in enumerate(paragraph.runs):
-            ln = len(run.text)
-            out.append((i, cur, cur + ln))
-            cur += ln
-        return out
-
-    def _split_run(self, paragraph: Paragraph, run_index: int, offset: int) -> int:
-        if offset <= 0:
-            return run_index
-        run = paragraph.runs[run_index]
-        if offset >= len(run.text):
-            return run_index + 1
-        left = run.text[:offset]
-        right = run.text[offset:]
-        run.text = left
-
-        # clone the underlying XML element
-        cloned = copy.deepcopy(run._element)
-        run._element.addnext(cloned)
-
-        new_run = paragraph.runs[run_index + 1]
-        new_run.text = right
-        return run_index + 1
-
-
-# ----------------------------------------------------------------------
-# Helper to expose for advanced users if needed
-# ----------------------------------------------------------------------
-
-
-def _paragraph_text(p: Paragraph) -> str:
-    return "".join(r.text for r in p.runs)
