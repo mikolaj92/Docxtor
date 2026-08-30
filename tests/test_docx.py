@@ -871,6 +871,35 @@ def test_merged_cell_offset_replacements_apply_once(tmp_path: Path) -> None:
     assert doc.texts[0].endswith("Y")
 
 
+def write_vmerge_column_docx(path: Path) -> None:
+    """Two-row table whose first column is one vertically merged cell (#48)."""
+    doc = PyDocxDocument()
+    table = doc.add_table(rows=2, cols=2)
+    table.rows[0].cells[0].text = "Nr"
+    table.rows[0].cells[1].text = "Label"
+    table.rows[1].cells[1].text = "Value"
+    table.rows[0].cells[0].merge(table.rows[1].cells[0])
+    doc.save(str(path))
+
+
+def test_vmerge_continuation_cell_is_indexed_once(tmp_path: Path) -> None:
+    path = tmp_path / "vmerge.docx"
+    write_vmerge_column_docx(path)
+
+    doc = DocxDocument.open(path)
+    table_ids = [s.container_id for s in doc.segments if s.container_id.startswith("table:")]
+    assert table_ids == [
+        "table:0:r:0:c:0:p:0",
+        "table:0:r:0:c:1:p:0",
+        "table:0:r:1:c:1:p:0",
+    ]
+    assert "table:0:r:1:c:0:p:0" not in table_ids
+    texts = [s.text for s in doc.segments if s.container_id.startswith("table:")]
+    assert texts == ["Nr", "Label", "Value"]
+    nr_spans = [span for span in doc.spans if span.text == "Nr"]
+    assert len(nr_spans) == 1
+
+
 def test_unmerged_cells_keep_distinct_column_ids(tmp_path: Path) -> None:
     path = tmp_path / "grid.docx"
     d = PyDocxDocument()
