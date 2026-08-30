@@ -1,6 +1,6 @@
 [project]
 name = "docxtor"
-version = "0.4.5"
+version = "0.4.6"
 description = "Extract editable text segments from documents and inject changed text back in memory."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -10,7 +10,6 @@ authors = [
 ]
 dependencies = [
   "pymupdf>=1.24",
-  "pypdf>=5.0.0",
   "python-docx>=1.1.2",
   "reportlab>=4.2.0",
 ]
