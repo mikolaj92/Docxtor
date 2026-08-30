@@ -1178,11 +1178,12 @@ class DocxDocument:
         )
 
         # Tables. python-docx repeats the same ``cell._tc`` for every grid
-        # column covered by ``w:gridSpan`` (and some merge continuations).
-        # Index each unique XML cell once, at the first column id (#36).
+        # column covered by ``w:gridSpan`` and for every ``w:vMerge``
+        # continuation row. Index each unique XML cell once, at the first
+        # row/column id (#36 / #48).
         for ti, table in enumerate(doc.tables):
+            seen_cells: set[object] = set()
             for ri, row in enumerate(table.rows):
-                seen_cells: set[object] = set()
                 for ci, cell in enumerate(row.cells):
                     if cell._tc in seen_cells:
                         continue
