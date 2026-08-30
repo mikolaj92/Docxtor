@@ -11,7 +11,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
-from test_docx import write_docx
+from test_docx import write_simple_docx
 
 from docxtor import (
     DOCX_MIME,
@@ -123,7 +123,7 @@ def _unicode_font_name() -> str:
 
 def test_detects_docx_from_bytes_before_metadata(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
-    write_docx(input_path)
+    write_simple_docx(input_path)
     data = input_path.read_bytes()
 
     detection = detect_document_type("upload.bin", "application/octet-stream", data)
@@ -152,7 +152,7 @@ def test_rejects_unknown_binary_document() -> None:
 
 def test_load_docx_document_and_write_docx_bytes(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
-    write_docx(input_path)
+    write_simple_docx(input_path)
 
     document = load_document("input.docx", DOCX_MIME, input_path.read_bytes())
     document.apply_replacements(

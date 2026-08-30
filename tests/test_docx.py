@@ -49,11 +49,6 @@ def write_docx_with_formatting(path: Path) -> None:
     write_simple_docx(path)
 
 
-def write_docx(path: Path) -> None:
-    """Legacy name kept for tests that call it."""
-    write_simple_docx(path)
-
-
 def read_part(path: Path, name: str) -> str:
     with ZipFile(path) as docx:
         return docx.read(name).decode("utf-8")
@@ -89,7 +84,7 @@ def test_noop_round_trip_does_not_create_missing_header_or_footer_parts(
 
 def test_extracts_docx_text_segments(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
-    write_docx(input_path)
+    write_simple_docx(input_path)
 
     doc = DocxDocument.open(input_path)
 
@@ -149,16 +144,16 @@ def test_applies_replacements_without_removing_run_formatting(tmp_path: Path) ->
     )
     doc.save_docx(output_path)
 
-    # python-docx preserves run properties on the first run of the paragraph
+    # The replacement in the first paragraph inherits its source run's bold rPr.
+    reopened_docx = PyDocxDocument(output_path)
+    first_paragraph = reopened_docx.paragraphs[0]
+    assert first_paragraph.text == "Hello there"
+    assert first_paragraph.runs[0].bold is True
+    assert first_paragraph.runs[0].text == "Hello there"
+
     document_xml = read_part(output_path, "word/document.xml")
     header_xml = read_part(output_path, "word/header1.xml")
-
-    assert (
-        "<w:b" in document_xml
-        or 'w:val="1"' in document_xml
-        or "bold" in document_xml.lower()
-        or True
-    )  # best effort
+    assert "<w:b" in document_xml
     assert "Changed paragraph" in document_xml
     assert "Changed header" in header_xml
 
@@ -168,7 +163,7 @@ def test_applies_replacements_without_removing_run_formatting(tmp_path: Path) ->
 
 def test_docx_round_trip_in_memory(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
-    write_docx(input_path)
+    write_simple_docx(input_path)
 
     doc = DocxDocument.open_bytes(input_path.read_bytes())
     doc.apply_replacements(
@@ -190,7 +185,7 @@ def test_docx_round_trip_in_memory(tmp_path: Path) -> None:
 def test_applies_replacement_by_segment_id(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
-    write_docx(input_path)
+    write_simple_docx(input_path)
 
     doc = DocxDocument.open(input_path)
     doc.apply_replacements(
@@ -215,7 +210,7 @@ def test_apply_replacements_rejects_non_segment_replacements(
     tmp_path: Path, replacement: object
 ) -> None:
     input_path = tmp_path / "input.docx"
-    write_docx(input_path)
+    write_simple_docx(input_path)
     doc = DocxDocument.open(input_path)
 
     with pytest.raises(
@@ -228,7 +223,7 @@ def test_apply_targets_normalizes_compatibility_inputs_before_delegation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     input_path = tmp_path / "input.docx"
-    write_docx(input_path)
+    write_simple_docx(input_path)
     doc = DocxDocument.open(input_path)
     captured: list[tuple[list[SegmentReplacement], bool]] = []
 
@@ -297,7 +292,7 @@ def test_to_bytes_preserves_root_namespace_declarations(tmp_path: Path) -> None:
 
 def test_strict_rejects_invalid_replacement_offsets(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
-    write_docx(input_path)
+    write_simple_docx(input_path)
 
     doc = DocxDocument.open(input_path)
     original = doc.texts
@@ -515,13 +510,12 @@ def test_rpr_at_picks_formatting_from_text_segments(tmp_path: Path) -> None:
     segs = paragraph_to_inline_segments(para)
 
     rpr_bold = _rpr_at(segs, 2)  # inside "Bold"
-    _rpr_at(segs, 6)  # inside "Plain"
+    rpr_plain = _rpr_at(segs, 6)  # inside "Plain"
 
-    # We only check presence; full XML equality is brittle.
     assert rpr_bold is not None
-    # plain may or may not have rpr element; the point is the function does not crash
-    # and returns something for the bold region.
-    assert True
+    assert rpr_bold.find(qn("w:b")) is not None
+    # The plain run has no rPr, so there is no formatting to inherit.
+    assert rpr_plain is None
 
 
 def test_rebuild_paragraph_from_inline_preserves_text_and_opaque(tmp_path: Path) -> None:
