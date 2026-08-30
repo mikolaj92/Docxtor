@@ -125,6 +125,70 @@ def test_explicit_header_and_footer_keep_editable_container_ids(tmp_path: Path) 
     assert reopened.texts == ["Body", "New header", "New footer"]
 
 
+def test_indexes_defined_first_and_even_page_stories(tmp_path: Path) -> None:
+    input_path = tmp_path / "alt-stories.docx"
+    output_path = tmp_path / "edited-alt-stories.docx"
+    source = PyDocxDocument()
+    source.add_paragraph("Body")
+    section = source.sections[0]
+    section.header.paragraphs[0].add_run("Default header")
+    section.footer.paragraphs[0].add_run("Default footer")
+    section.different_first_page_header_footer = True
+    section.first_page_header.paragraphs[0].add_run("First header")
+    section.first_page_footer.paragraphs[0].add_run("First footer")
+    source.settings.odd_and_even_pages_header_footer = True
+    section.even_page_header.paragraphs[0].add_run("Even header")
+    section.even_page_footer.paragraphs[0].add_run("Even footer")
+    source.save(input_path)
+
+    document = DocxDocument.open(input_path)
+    assert [segment.container_id for segment in document.segments] == [
+        "body:p:0",
+        "header:0:p:0",
+        "header-first:0:p:0",
+        "header-even:0:p:0",
+        "footer:0:p:0",
+        "footer-first:0:p:0",
+        "footer-even:0:p:0",
+    ]
+
+    document.apply_replacements(
+        [
+            SegmentReplacement(container_id="header-first:0:p:0", text="New first header"),
+            SegmentReplacement(container_id="footer-even:0:p:0", text="New even footer"),
+        ],
+        strict=True,
+    )
+    document.save_docx(output_path)
+
+    reopened = DocxDocument.open(output_path)
+    assert reopened.texts == [
+        "Body",
+        "Default header",
+        "New first header",
+        "Even header",
+        "Default footer",
+        "First footer",
+        "New even footer",
+    ]
+
+
+def test_missing_first_and_even_stories_keep_default_ids(tmp_path: Path) -> None:
+    input_path = tmp_path / "default-only.docx"
+    source = PyDocxDocument()
+    source.add_paragraph("Body")
+    source.sections[0].header.paragraphs[0].add_run("Old header")
+    source.sections[0].footer.paragraphs[0].add_run("Old footer")
+    source.save(input_path)
+
+    document = DocxDocument.open(input_path)
+    assert [segment.container_id for segment in document.segments] == [
+        "body:p:0",
+        "header:0:p:0",
+        "footer:0:p:0",
+    ]
+
+
 def test_applies_replacements_without_removing_run_formatting(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"

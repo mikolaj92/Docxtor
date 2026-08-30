@@ -1204,7 +1204,11 @@ class DocxDocument:
         for si, section in enumerate(doc.sections):
             for story_name, story in (
                 ("header", section.header),
+                ("header-first", section.first_page_header),
+                ("header-even", section.even_page_header),
                 ("footer", section.footer),
+                ("footer-first", section.first_page_footer),
+                ("footer-even", section.even_page_footer),
             ):
                 if not story._has_definition:
                     continue
