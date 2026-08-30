@@ -75,6 +75,10 @@ and hyperlink anchor/relationship. Unsupported structural revisions such as
 `w:moveFrom` or block-level `w:ins` raise `UnsupportedRevisionError` before
 any partial output is written. Docxtor does not interpret review meaning.
 
+User-authored footnotes and endnotes are mechanical stories with stable
+`footnote:{id}:p:{n}` and `endnote:{id}:p:{n}` ids. Separator and continuation-
+separator notes are not user segments, and missing note parts are never created.
+
 Word comment bodies are addressable as `comment:{id}:p:{n}` segments and through
 `document.comments`. Each `AddressableComment` carries the comment id, body text,
 author/initials/date, the story locator and anchored range text when present, and

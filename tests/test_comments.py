@@ -22,8 +22,10 @@ _COMMENTS_EXTENDED_REL = "http://schemas.microsoft.com/office/2011/relationships
 _COMMENTS_IDS_REL = "http://schemas.microsoft.com/office/2016/relationships/commentsIds"
 _PEOPLE_REL = "http://schemas.microsoft.com/office/2011/relationships/people"
 _FOOTNOTES_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
+_ENDNOTES_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.endnotes+xml"
 _COMMENTS_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
 _FOOTNOTES_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
+_ENDNOTES_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes"
 
 
 def _plain_comment_docx(
@@ -424,6 +426,77 @@ def test_empty_comments_and_separator_notes_are_not_user_segments(
     assert doc.texts == ["Visible."]
     assert not any((segment.container_id or "").startswith("comment:") for segment in doc.segments)
     assert not any((segment.container_id or "").startswith("footnote:") for segment in doc.segments)
+
+
+def test_user_footnotes_and_endnotes_are_addressable_and_round_trip(tmp_path: Path) -> None:
+    source_path = tmp_path / "notes.docx"
+    output_path = tmp_path / "notes-out.docx"
+    _write_parts(
+        source_path,
+        """
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body><w:p><w:r><w:t>Visible body.</w:t></w:r></w:p></w:body>
+</w:document>
+""".strip(),
+        document_rels=(
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            f'<Relationship Id="rIdFootnotes" Type="{_FOOTNOTES_REL}" Target="footnotes.xml"/>'
+            f'<Relationship Id="rIdEndnotes" Type="{_ENDNOTES_REL}" Target="endnotes.xml"/>'
+            "</Relationships>"
+        ),
+        extras={
+            "word/footnotes.xml": (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                '<w:footnote w:type="separator" w:id="-1">'
+                '<w:p><w:r><w:separator/></w:r></w:p></w:footnote>'
+                '<w:footnote w:id="2"><w:p><w:r><w:t>Private footnote</w:t></w:r></w:p>'
+                '<w:p><w:r><w:t>Second paragraph</w:t></w:r></w:p></w:footnote>'
+                '</w:footnotes>'
+            ),
+            "word/endnotes.xml": (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<w:endnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                '<w:endnote w:type="continuationSeparator" w:id="0">'
+                '<w:p><w:r><w:continuationSeparator/></w:r></w:p></w:endnote>'
+                '<w:endnote w:id="7"><w:p><w:r><w:t>Private endnote</w:t></w:r></w:p></w:endnote>'
+                '</w:endnotes>'
+            ),
+        },
+        overrides=(
+            f'<Override PartName="/word/footnotes.xml" ContentType="{_FOOTNOTES_TYPE}"/>'
+            f'<Override PartName="/word/endnotes.xml" ContentType="{_ENDNOTES_TYPE}"/>'
+        ),
+    )
+
+    document = DocxDocument.open(source_path)
+    assert [segment.container_id for segment in document.segments] == [
+        "body:p:0",
+        "footnote:2:p:0",
+        "footnote:2:p:1",
+        "endnote:7:p:0",
+    ]
+    document.apply_replacements(
+        [
+            SegmentReplacement(container_id="footnote:2:p:0", text="Masked footnote"),
+            SegmentReplacement(container_id="endnote:7:p:0", text="Masked endnote"),
+        ],
+        strict=True,
+    )
+    document.save_docx(output_path)
+
+    reopened = DocxDocument.open(output_path)
+    assert reopened.texts == [
+        "Visible body.",
+        "Masked footnote",
+        "Second paragraph",
+        "Masked endnote",
+    ]
+    with ZipFile(output_path) as bundle:
+        assert b"Private footnote" not in bundle.read("word/footnotes.xml")
+        assert b"Private endnote" not in bundle.read("word/endnotes.xml")
+        assert b"separator" in bundle.read("word/footnotes.xml")
+        assert b"continuationSeparator" in bundle.read("word/endnotes.xml")
 
 
 def test_documents_without_comments_and_untouched_comments_do_not_drift(
