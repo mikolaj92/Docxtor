@@ -18,7 +18,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
-from .common import DocumentError
+from .common import DOCX_MIME, DocumentBytes, DocumentError, output_filename
 
 W_P = qn("w:p")
 W_R = qn("w:r")
@@ -1056,7 +1056,10 @@ class DocxDocument:
         doc: DocxDocumentType,
         segments: list[TextSegment],
         refs: list[_ParaRef],
+        *,
+        filename: str = "document.docx",
     ) -> None:
+        self.filename = filename
         self._doc = doc
         self._segments = segments
         self._refs = refs  # index-aligned with segments
@@ -1068,15 +1071,17 @@ class DocxDocument:
     def open(cls, path: str | Path) -> DocxDocument:
         path = Path(path)
         doc = PyDocxDocument(str(path))
-        return cls._from_pydocx(doc)
+        return cls._from_pydocx(doc, filename=path.name)
 
     @classmethod
-    def open_bytes(cls, data: bytes) -> DocxDocument:
+    def open_bytes(cls, data: bytes, *, filename: str = "document.docx") -> DocxDocument:
         doc = PyDocxDocument(BytesIO(data))
-        return cls._from_pydocx(doc)
+        return cls._from_pydocx(doc, filename=filename)
 
     @classmethod
-    def _from_pydocx(cls, doc: DocxDocumentType) -> DocxDocument:
+    def _from_pydocx(
+        cls, doc: DocxDocumentType, *, filename: str = "document.docx"
+    ) -> DocxDocument:
         segments: list[TextSegment] = []
         refs: list[_ParaRef] = []
 
@@ -1229,7 +1234,7 @@ class DocxDocument:
                     comment_id,
                 )
 
-        instance = cls(doc=doc, segments=segments, refs=refs)
+        instance = cls(doc=doc, segments=segments, refs=refs, filename=filename)
         instance._paragraphs_by_index = paragraphs_by_index
         instance._paragraphs_by_container = paragraphs_by_container
         instance._spans = instance._collect_spans()
@@ -1503,6 +1508,13 @@ class DocxDocument:
         buf = BytesIO()
         self._doc.save(buf)
         return _restore_thread_sidecars(buf.getvalue(), self._thread_parts)
+
+    def to_document_bytes(self) -> DocumentBytes:
+        return DocumentBytes(
+            filename=output_filename(self.filename, "docx"),
+            content_type=DOCX_MIME,
+            data=self.to_bytes(),
+        )
 
     # ------------------------------------------------------------------
     # Internal
