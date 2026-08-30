@@ -12,9 +12,10 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from docx import Document as PyDocxDocument
 from docx.document import Document as DocxDocumentType
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.opc.oxml import serialize_part_xml
 from docx.opc.packuri import PackURI
 from docx.opc.part import Part
-from docx.oxml import OxmlElement
+from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
@@ -588,6 +589,14 @@ def _existing_comments_part(doc: DocxDocumentType) -> Any | None:
         return None
 
 
+def _existing_note_part(doc: DocxDocumentType, reltype: str) -> tuple[Any, Any] | None:
+    try:
+        part = doc.part.part_related_by(reltype)
+    except KeyError:
+        return None
+    return part, parse_xml(part.blob)
+
+
 def _unsupported_revision_reason(doc: DocxDocumentType) -> str | None:
     roots: list[Any] = [doc.element]
     for section in doc.sections:
@@ -1066,6 +1075,7 @@ class DocxDocument:
         self._spans: list[AddressableSpan] = []
         self._comments: list[AddressableComment] = []
         self._thread_parts: dict[str, tuple[bytes, str]] = {}
+        self._note_parts: dict[str, tuple[Any, Any]] = {}
 
     @classmethod
     def open(cls, path: str | Path) -> DocxDocument:
@@ -1175,6 +1185,39 @@ class DocxDocument:
                     )
                 )
 
+        def add_note_paragraphs(
+            paragraphs: list[Paragraph], story: str, note_id: str, part_name: str
+        ) -> None:
+            for local_idx, para in enumerate(paragraphs):
+                cid = f"{story}:{note_id}:p:{local_idx}"
+                paragraphs_by_container[cid] = para
+                text = _paragraph_visible_text(para)
+                if not text:
+                    continue
+                seg_id = f"s{len(segments)}"
+                segments.append(
+                    TextSegment(
+                        id=seg_id,
+                        text=text,
+                        part=part_name,
+                        index=local_idx,
+                        container_id=cid,
+                        paragraph_index=None,
+                        run_indices=[
+                            run_index for run_index, run in enumerate(para.runs) if run.text
+                        ],
+                    )
+                )
+                refs.append(
+                    _ParaRef(
+                        id=seg_id,
+                        container_id=cid,
+                        paragraph_index=None,
+                        paragraph=para,
+                        part_name=f"{story}:{note_id}",
+                    )
+                )
+
         # Body (include w:sdt/w:sdtContent paragraphs omitted by python-docx).
         # Skip floating text boxes here; they are indexed as txbx:N below.
         add_paragraphs(
@@ -1238,6 +1281,30 @@ class DocxDocument:
                     comment_id,
                 )
 
+        note_parts: dict[str, tuple[Any, Any]] = {}
+        for story, reltype, root_tag, note_tag, part_name in (
+            ("footnote", RT.FOOTNOTES, "w:footnotes", "w:footnote", "word/footnotes.xml"),
+            ("endnote", RT.ENDNOTES, "w:endnotes", "w:endnote", "word/endnotes.xml"),
+        ):
+            existing_note = _existing_note_part(doc, reltype)
+            if existing_note is None:
+                continue
+            note_part, note_root = existing_note
+            if note_root.tag != qn(root_tag):
+                continue
+            note_parts[story] = (note_part, note_root)
+            for note_elm in note_root.findall(qn(note_tag)):
+                note_id = _w_get(note_elm, "id")
+                note_type = _w_get(note_elm, "type")
+                if note_id is None or note_type in {"separator", "continuationSeparator"}:
+                    continue
+                add_note_paragraphs(
+                    _paragraphs_from_container(note_elm, note_part),
+                    story,
+                    note_id,
+                    part_name,
+                )
+
         instance = cls(doc=doc, segments=segments, refs=refs, filename=filename)
         instance._paragraphs_by_index = paragraphs_by_index
         instance._paragraphs_by_container = paragraphs_by_container
@@ -1246,6 +1313,7 @@ class DocxDocument:
             comments_part, paragraphs_by_container, doc.part.package
         )
         instance._thread_parts = _capture_thread_parts(doc.part.package)
+        instance._note_parts = note_parts
         _ensure_thread_parts(doc.part.package, instance._thread_parts)
         return instance
 
@@ -1542,6 +1610,11 @@ class DocxDocument:
         new_text = _paragraph_visible_text(ref.paragraph)
         old = self._segments[index]
         self._segments[index] = replace(old, text=new_text)
+        story = ref.part_name.split(":", 1)[0]
+        note_part = self._note_parts.get(story)
+        if note_part is not None:
+            part, root = note_part
+            part._blob = serialize_part_xml(root)
         self._spans = self._collect_spans()
         self._comments = _collect_comments(
             _existing_comments_part(self._doc),
