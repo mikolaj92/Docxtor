@@ -822,3 +822,64 @@ def test_apply_replacements_edits_textbox_segment(tmp_path: Path) -> None:
     box = next(s for s in reopened.segments if s.container_id == "txbx:0:p:0")
     assert box.text == "Nowa klauzula."
     assert "Stara klauzula." not in reopened.texts
+
+
+def write_merged_row_docx(path: Path) -> None:
+    """One 1x4 table whose first row is a single gridSpan=4 cell (#36)."""
+    doc = PyDocxDocument()
+    table = doc.add_table(rows=1, cols=4)
+    cell = table.rows[0].cells[0]
+    cell.text = "ABCDEFGHIJ0123456789ABCDEFGHIJ0123456789"
+    cell.merge(table.rows[0].cells[3])
+    doc.save(str(path))
+
+
+def test_merged_gridspan_cell_is_indexed_once(tmp_path: Path) -> None:
+    path = tmp_path / "merged.docx"
+    write_merged_row_docx(path)
+
+    doc = DocxDocument.open(path)
+    table_ids = [s.container_id for s in doc.segments if s.container_id.startswith("table:")]
+    assert table_ids == ["table:0:r:0:c:0:p:0"]
+    assert len(doc.texts) == 1
+    assert len(doc.texts[0]) == 40
+
+
+def test_merged_cell_offset_replacements_apply_once(tmp_path: Path) -> None:
+    path = tmp_path / "merged.docx"
+    write_merged_row_docx(path)
+    doc = DocxDocument.open(path)
+    cid = doc.segments[0].container_id
+    assert cid == "table:0:r:0:c:0:p:0"
+    alias_ids = [
+        "table:0:r:0:c:1:p:0",
+        "table:0:r:0:c:2:p:0",
+        "table:0:r:0:c:3:p:0",
+    ]
+    assert all(s.container_id not in alias_ids for s in doc.segments)
+    # Right-to-left like Posejdon: later offsets first so the first edit does
+    # not invalidate the second. Duplicate aliases would still apply the same
+    # 20:40 four times and overflow after the first shorten.
+    doc.apply_replacements(
+        [
+            SegmentReplacement(container_id=cid, text="Y", start_offset=20, end_offset=40),
+            SegmentReplacement(container_id=cid, text="X", start_offset=0, end_offset=10),
+        ]
+    )
+    assert len(doc.texts) == 1
+    assert doc.texts[0].startswith("X")
+    assert doc.texts[0].endswith("Y")
+
+
+def test_unmerged_cells_keep_distinct_column_ids(tmp_path: Path) -> None:
+    path = tmp_path / "grid.docx"
+    d = PyDocxDocument()
+    table = d.add_table(rows=1, cols=2)
+    table.rows[0].cells[0].text = "Left"
+    table.rows[0].cells[1].text = "Right"
+    d.save(str(path))
+
+    doc = DocxDocument.open(path)
+    table_ids = [s.container_id for s in doc.segments if s.container_id.startswith("table:")]
+    assert table_ids == ["table:0:r:0:c:0:p:0", "table:0:r:0:c:1:p:0"]
+
