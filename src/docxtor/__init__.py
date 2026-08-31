@@ -1,4 +1,4 @@
-__version__ = "0.8.14"
+__version__ = "0.8.15"
 
 from .common import (
     DOCX_MIME,
@@ -282,11 +282,12 @@ __all__ = [
     "write_publication_bytes",
     "SURFACE_LOCATOR_VERSION",
     "flatten_link_fields",
+    "instruction_is_strippable_hyperlink_field",
 ]
 
 from .docx_combined_transaction import CombinedTransactionReceipt, apply_docx_transaction
 from .docx_inventory import SURFACE_LOCATOR_VERSION, PackageGraph, PackageRelationship
-from .docx_link_fields import flatten_link_fields
+from .docx_link_fields import flatten_link_fields, instruction_is_strippable_hyperlink_field
 from .docx_package_transaction import (
     PackageDisposition,
     PackageDispositionStatus,
