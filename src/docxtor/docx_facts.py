@@ -162,6 +162,7 @@ class DocxStructureSnapshot:
     field_ids: tuple[str, ...]
     bookmark_ids: tuple[str, ...]
     table_ids: tuple[str, ...] = ()
+    body_block_ids: tuple[str, ...] = ()
     section_property_hashes: tuple[str, ...] = ()
     coverage: FactsCoverage = FactsCoverage.COMPLETE
 
@@ -339,6 +340,7 @@ def docx_facts(source: Source) -> DocxFactsSnapshot:
                 }
             )
         ),
+        body_block_ids=_body_block_ids(paragraphs),
         section_property_hashes=_section_property_hashes(xml_roots),
         coverage=coverage,
     )
@@ -374,6 +376,20 @@ def docx_facts(source: Source) -> DocxFactsSnapshot:
 
 # A discoverable noun/verb pair for callers that prefer ``snapshot_docx``.
 snapshot_docx = docx_facts
+
+
+def _body_block_ids(paragraphs: tuple[ParagraphFact, ...]) -> tuple[str, ...]:
+    result: list[str] = []
+    for paragraph in paragraphs:
+        if paragraph.part_name != "word/document.xml":
+            continue
+        table_index = paragraph.coordinate.table_index
+        if table_index is None and paragraph.story_kind != "body":
+            continue
+        block_id = f"table:{table_index}" if table_index is not None else paragraph.container_id
+        if not result or result[-1] != block_id:
+            result.append(block_id)
+    return tuple(result)
 
 
 def _section_property_hashes(

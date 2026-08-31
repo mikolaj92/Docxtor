@@ -292,3 +292,12 @@ def test_table_before_body_keeps_distinct_typed_coordinates() -> None:
         ("body:p:0", "body"),
     ]
     assert snapshot.structure.table_ids == ("table:0",)
+
+
+def test_body_block_order_is_typed() -> None:
+    document = Document()
+    document.add_table(rows=1, cols=1).cell(0, 0).text = "cell"
+    document.add_paragraph("body")
+    stream = BytesIO()
+    document.save(stream)
+    assert docx_facts(stream.getvalue()).structure.body_block_ids == ("table:0", "body:p:0")

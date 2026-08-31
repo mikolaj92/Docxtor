@@ -170,7 +170,7 @@ wheels = [
 
 [[package]]
 name = "docxtor"
-version = "0.8.10"
+version = "0.8.11"
 source = { editable = "." }
 dependencies = [
     { name = "pymupdf" },
