@@ -8,6 +8,7 @@ from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
+from docxtor import DocxDocument
 from docxtor.docx_facts import (
     ChangeKind,
     FactsCoverage,
@@ -228,3 +229,19 @@ def test_unreadable_properties_are_typed_without_consumer_xml_parse(tmp_path) ->
 
     assert snapshot.coverage is FactsCoverage.INCOMPLETE
     assert snapshot.unreadable_parts[0].part_name == "docProps/app.xml"
+
+
+def test_document_facts_use_original_package_including_orphan_parts(tmp_path) -> None:
+    data = _document()
+    changed = _rewrite(
+        tmp_path,
+        data,
+        {"word/embeddings/Microsoft_Excel_Worksheet.xlsx": b"PK\x03\x04opaque"},
+    )
+    document = DocxDocument.open_bytes(changed)
+
+    snapshot = document.facts()
+
+    assert any(
+        part.name == "word/embeddings/Microsoft_Excel_Worksheet.xlsx" for part in snapshot.parts
+    )
