@@ -245,3 +245,23 @@ def test_document_facts_use_original_package_including_orphan_parts(tmp_path) ->
     assert any(
         part.name == "word/embeddings/Microsoft_Excel_Worksheet.xlsx" for part in snapshot.parts
     )
+
+
+def test_page_layout_facts_project_application_and_break_pages(tmp_path) -> None:
+    document = Document()
+    first = document.add_paragraph("first")
+    br = OxmlElement("w:br")
+    br.set(qn("w:type"), "page")
+    first.add_run()._r.append(br)
+    document.add_paragraph("")
+    stream = BytesIO()
+    document.save(stream)
+
+    snapshot = docx_facts(stream.getvalue())
+
+    assert snapshot.page_layout.application_page_count == 1
+    assert snapshot.page_layout.estimated_page_count == 2
+    assert len(snapshot.page_layout.breaks) == 1
+    assert snapshot.page_layout.breaks[0].kind == "explicit"
+    assert snapshot.page_layout.breaks[0].container_id == "body:p:0"
+    assert snapshot.page_layout.body_page_text == ("first", "")
