@@ -201,7 +201,6 @@ def _run_segments(run: Any) -> list[InlineSegment]:
     return result
 
 
-
 def paragraph_to_inline_segments(paragraph: Paragraph) -> list[InlineSegment]:
     """Canonical decomposition of a python-docx Paragraph into ordered InlineSegments.
 
@@ -265,4 +264,3 @@ def rebuild_paragraph_from_inline(paragraph: Paragraph, segments: list[InlineSeg
             parent.append(run)
         elif seg.kind == "opaque" and seg.element is not None:
             parent.append(copy.deepcopy(seg.element))
-

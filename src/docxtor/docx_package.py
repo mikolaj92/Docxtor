@@ -19,13 +19,17 @@ _ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 _XML_BOMS = (b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff", b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")
 _XML_PROBE_BYTES = 64 * 1024
 _XML_ENCODINGS = (
-    "utf-8-sig", "utf-16", "utf-16-le", "utf-16-be", "utf-32", "utf-32-le", "utf-32-be"
+    "utf-8-sig",
+    "utf-16",
+    "utf-16-le",
+    "utf-16-be",
+    "utf-32",
+    "utf-32-le",
+    "utf-32-be",
 )
 _OPC_PART_NAME_CHARS = frozenset("!$&'()*+,-.:;=@_~")
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
-_ASCII_IUNRESERVED = frozenset(
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-)
+_ASCII_IUNRESERVED = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
 
 @dataclass(frozen=True)
@@ -211,9 +215,7 @@ def _validate_infos(infos: list[ZipInfo], limits: PackageLimits) -> None:
             raise PackageError(f"DOCX entry {info.filename} compression ratio exceeds limit")
 
 
-def _validate_entry_records(
-    entries: tuple[PackageEntry, ...], limits: PackageLimits
-) -> None:
+def _validate_entry_records(entries: tuple[PackageEntry, ...], limits: PackageLimits) -> None:
     infos = []
     for entry in entries:
         info = entry.zip_info()
@@ -270,8 +272,7 @@ def _is_valid_package_segment(segment: str) -> bool:
             offset += 3
             continue
         if not (
-            ord(character) < 128
-            and (character.isalnum() or character in _OPC_PART_NAME_CHARS)
+            ord(character) < 128 and (character.isalnum() or character in _OPC_PART_NAME_CHARS)
         ):
             return False
         offset += 1

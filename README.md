@@ -34,8 +34,7 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git
 ```
 
-Pin `v0.6.0` or later for neutral Word review markup, typed operation receipts,
-and atomic DOCX publication. `v0.5.2` introduced complete package inventory,
+Pin `v0.7.0` or later for complete mechanical facts snapshot (`DocxFactsSnapshot`) and structural comparison (`compare_docx`). `v0.6.0` introduced neutral Word review markup, typed operation receipts, and atomic DOCX publication. `v0.5.2` introduced complete package inventory,
 neutral surface capabilities, and verified surface mutations. Earlier `v0.4.x` tags include
 stable text/revision/comment addressing but not the complete inventory contract.
 Tag `v0.4.1` still ships distribution version `0.4.0`; `v0.4.4` was the first
@@ -307,3 +306,24 @@ preserves semantically unchanged source XML, normalizes ZIP timestamps, validate
 the complete package, runs optional validators, and performs one atomic replace.
 The returned `PublishReceipt` identifies the exact published bytes. A failure
 before replacement leaves an existing destination byte-for-byte unchanged.
+
+
+### Complete mechanical facts and structural diff
+
+`DocxDocument.facts()` and `compare_docx(before, after)` provide complete,
+typed facts snapshots for package structure, OPC relationships, container
+coordinates, fields, bookmarks, and stories.
+
+```python
+from docxtor import compare_docx, docx_facts
+
+before_facts = docx_facts("before.docx")
+after_facts = docx_facts("after.docx")
+
+comparison = compare_docx(before_facts, after_facts)
+if not comparison.compliant:
+    print(comparison.changes)
+```
+
+`compare_docx` detects lost containers, broken relationships, part drift, and
+unintended surface modifications without parsing raw XML in consumer code.

@@ -188,8 +188,7 @@ def test_load_pdf_document_and_write_pdf_bytes() -> None:
 
 def test_load_pdf_joins_soft_wrapped_lines_with_space() -> None:
     data = _positioned_pdf_bytes(
-        "X" * 20
-        + " Dane testowe obejmuja adres e-mail x, numer telefonu +48 514 222 333, rachun",
+        "X" * 20 + " Dane testowe obejmuja adres e-mail x, numer telefonu +48 514 222 333, rachun",
         "1140 2004 0000 3102 1234 5678, pojazd KR 7MZ18.",
     )
 
@@ -211,11 +210,7 @@ def test_pdf_write_preserves_polish_text_and_page_count() -> None:
     assert "Dane nie są fikcyjne" in _normalize_text(document.texts[0])
     assert "Zażółć gęślą jaźń" in _normalize_text(document.texts[0])
 
-    anonymized = (
-        document.texts[0]
-        .replace("Jan Kowalski", "****")
-        .replace("44051401359", "****")
-    )
+    anonymized = document.texts[0].replace("Jan Kowalski", "****").replace("44051401359", "****")
     document.apply_texts([anonymized])
     output = document_to_bytes(document, "input.pdf")
 
@@ -332,11 +327,7 @@ def test_pdf_label_style_anonymization_preserves_page_count() -> None:
     assert "jan.kowalski@example.com" not in output_text
     assert "+48 514 222 333" not in output_text
     assert "PL61 1140 2004 0000 3102 1234 5678" not in output_text
-    assert (
-        "[OSOBA_1]" in output_text
-        or "[PESEL_1]" in output_text
-        or "****" in output_text
-    )
+    assert "[OSOBA_1]" in output_text or "[PESEL_1]" in output_text or "****" in output_text
     assert "Page 1 of 30" in fitz.open(stream=output.data, filetype="pdf")[0].get_text()
     assert "Page 30 of 30" in fitz.open(stream=output.data, filetype="pdf")[29].get_text()
 

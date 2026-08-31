@@ -1,4 +1,4 @@
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 from .common import (
     DOCX_MIME,
@@ -39,6 +39,13 @@ from .docx_comment_mutations import (
     CommentRange,
     add_comment,
     remove_comments,
+)
+from .docx_facts import (
+    DocxFactsSnapshot,
+    DocxStructureSnapshot,
+    TransformPolicy,
+    compare_docx,
+    docx_facts,
 )
 from .docx_inventory import (
     DocumentSurface,
@@ -114,6 +121,11 @@ from .text import PlainTextDocument
 
 __all__ = [
     "__version__",
+    "DocxFactsSnapshot",
+    "DocxStructureSnapshot",
+    "TransformPolicy",
+    "compare_docx",
+    "docx_facts",
     "RevisionAuthor",
     "RevisionMutationError",
     "RevisionMutationResult",

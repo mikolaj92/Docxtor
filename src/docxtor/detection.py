@@ -37,22 +37,14 @@ def detect_document_type(
     mime = _normalize_mime(content_type)
 
     if _is_docx_package(data):
-        return DetectedDocumentType(
-            filename, DocumentKind.DOCX, ".docx", DOCX_MIME, "signature"
-        )
+        return DetectedDocumentType(filename, DocumentKind.DOCX, ".docx", DOCX_MIME, "signature")
     if _is_pdf(data):
-        return DetectedDocumentType(
-            filename, DocumentKind.PDF, ".pdf", PDF_MIME, "signature"
-        )
+        return DetectedDocumentType(filename, DocumentKind.PDF, ".pdf", PDF_MIME, "signature")
 
     if mime == DOCX_MIME or suffix == ".docx":
-        return DetectedDocumentType(
-            filename, DocumentKind.DOCX, ".docx", DOCX_MIME, "metadata"
-        )
+        return DetectedDocumentType(filename, DocumentKind.DOCX, ".docx", DOCX_MIME, "metadata")
     if mime == PDF_MIME or suffix == ".pdf":
-        return DetectedDocumentType(
-            filename, DocumentKind.PDF, ".pdf", PDF_MIME, "metadata"
-        )
+        return DetectedDocumentType(filename, DocumentKind.PDF, ".pdf", PDF_MIME, "metadata")
 
     if suffix in TEXT_EXTENSIONS or mime.startswith("text/"):
         return DetectedDocumentType(
@@ -64,9 +56,7 @@ def detect_document_type(
         )
 
     if _looks_like_text(data):
-        return DetectedDocumentType(
-            filename, DocumentKind.TEXT, ".txt", TXT_MIME, "content"
-        )
+        return DetectedDocumentType(filename, DocumentKind.TEXT, ".txt", TXT_MIME, "content")
 
     raise DocumentError("Nieobsługiwany typ dokumentu.")
 

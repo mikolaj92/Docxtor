@@ -29,7 +29,6 @@ def _existing_note_part(doc: DocxDocumentType, reltype: str) -> tuple[Any, Any] 
     return part, parse_xml(part.blob)
 
 
-
 def _iter_text_box_hosts(root: Any) -> list[Any]:
     """Return each text-bearing ``w:txbxContent`` (or VML/DrawingML wrapper).
 
@@ -127,7 +126,6 @@ class _ParaRef:
     part_name: str  # "body", "header:0", "table:0:r:0:c:0", etc.
 
 
-
 @dataclass
 class IndexedStories:
     """Mechanical walk of one python-docx document into addressable stories."""
@@ -172,9 +170,7 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
             paragraphs_by_container[cid] = para
 
             text = _paragraph_visible_text(para)
-            run_indices = (
-                [ri for ri, run in enumerate(para.runs) if run.text] if para.runs else []
-            )
+            run_indices = [ri for ri, run in enumerate(para.runs) if run.text] if para.runs else []
 
             if text:
                 seg_id = f"s{len(segments)}"
@@ -223,9 +219,7 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
                     index=local_idx,
                     container_id=cid,
                     paragraph_index=None,
-                    run_indices=[
-                        run_index for run_index, run in enumerate(para.runs) if run.text
-                    ],
+                    run_indices=[run_index for run_index, run in enumerate(para.runs) if run.text],
                 )
             )
             refs.append(
@@ -256,9 +250,7 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
                     index=local_idx,
                     container_id=cid,
                     paragraph_index=None,
-                    run_indices=[
-                        run_index for run_index, run in enumerate(para.runs) if run.text
-                    ],
+                    run_indices=[run_index for run_index, run in enumerate(para.runs) if run.text],
                 )
             )
             refs.append(
@@ -368,9 +360,7 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
                 part_name,
             )
 
-    comments = _collect_comments(
-        comments_part, paragraphs_by_container, doc.part.package
-    )
+    comments = _collect_comments(comments_part, paragraphs_by_container, doc.part.package)
     thread_parts = _capture_thread_parts(doc.part.package)
     _ensure_thread_parts(doc.part.package, thread_parts)
     return IndexedStories(

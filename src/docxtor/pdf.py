@@ -93,9 +93,7 @@ class PdfDocument:
         texts = list(texts)
         segment_indexes = [segment.index for segment in self.segments]
         if len(texts) != len(segment_indexes):
-            raise ValueError(
-                f"expected {len(segment_indexes)} text segments, got {len(texts)}"
-            )
+            raise ValueError(f"expected {len(segment_indexes)} text segments, got {len(texts)}")
         for index, text in zip(segment_indexes, texts, strict=True):
             self.pages[index] = text
 
@@ -121,10 +119,9 @@ class PdfDocument:
                     continue
 
                 page = pdf[page_index]
-                if (
-                    not _requires_page_text_rebuild(source_text, anonymized_text)
-                    and _redact_page_changes(page, source_text, anonymized_text)
-                ):
+                if not _requires_page_text_rebuild(
+                    source_text, anonymized_text
+                ) and _redact_page_changes(page, source_text, anonymized_text):
                     continue
 
                 if not _replace_page_with_text(page, anonymized_text):

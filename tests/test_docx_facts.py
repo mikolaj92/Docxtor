@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+from io import BytesIO
+
+import pytest
+from docx import Document
+
+from docxtor.docx_facts import (
+    ChangeKind,
+    FactsCoverage,
+    TransformPolicy,
+    compare_docx,
+    docx_facts,
+)
+from docxtor.docx_package import (
+    PackageEntry,
+    PackageError,
+    read_package_entries,
+    write_package_atomically,
+)
+
+
+def _document(text: str = "hello") -> bytes:
+    stream = BytesIO()
+    document = Document()
+    document.add_paragraph(text)
+    document.save(stream)
+    return stream.getvalue()
+
+
+def _rewrite(tmp_path, data: bytes, changes: dict[str, bytes | None]) -> bytes:
+    path = tmp_path / "changed.docx"
+    entries = []
+    seen = set()
+    for entry in read_package_entries(data):
+        seen.add(entry.name)
+        replacement = changes.get(entry.name, entry.data)
+        if replacement is not None:
+            entries.append(PackageEntry(entry.name, replacement))
+    for name, replacement in changes.items():
+        if name not in seen and replacement is not None:
+            entries.append(PackageEntry(name, replacement))
+    write_package_atomically(path, entries)
+    return path.read_bytes()
+
+
+def test_snapshot_reports_parts_relationships_stories_and_orphan(tmp_path) -> None:
+    data = _rewrite(tmp_path, _document(), {"custom/orphan.bin": b"opaque"})
+    # Declare the opaque orphan so complete coverage is mechanically knowable.
+    types = next(e.data for e in read_package_entries(data) if e.name == "[Content_Types].xml")
+    types = types.replace(
+        b"</Types>", b'<Default Extension="bin" ContentType="image/x-test"/></Types>'
+    )
+    data = _rewrite(tmp_path, data, {"[Content_Types].xml": types})
+
+    snapshot = docx_facts(data)
+
+    assert snapshot.coverage is FactsCoverage.COMPLETE
+    assert "custom/orphan.bin" in snapshot.orphan_parts
+    assert any(part.name == "custom/orphan.bin" and not part.reachable for part in snapshot.parts)
+    assert snapshot.relationships
+    assert snapshot.stories
+    assert snapshot.paragraphs[0].coordinate.container_id == "body:p:0"
+
+
+def test_notes_fields_bookmarks_and_hidden_are_typed(tmp_path) -> None:
+    data = _document()
+    document_xml = next(e.data for e in read_package_entries(data) if e.name == "word/document.xml")
+    marker = b"<w:r><w:t>hello</w:t></w:r>"
+    facts = (
+        b'<w:bookmarkStart w:id="4" w:name="mark"/>'
+        b'<w:r><w:fldChar w:fldCharType="begin"/></w:r>'
+        b"<w:r><w:instrText>DATE</w:instrText></w:r>"
+        b"<w:r><w:rPr><w:vanish/></w:rPr><w:t>secret</w:t></w:r>"
+        b'<w:bookmarkEnd w:id="4"/>'
+    )
+    changed = _rewrite(
+        tmp_path, data, {"word/document.xml": document_xml.replace(marker, marker + facts)}
+    )
+
+    snapshot = docx_facts(changed)
+
+    assert {fact.value for fact in snapshot.fields} >= {"begin", "DATE"}
+    assert {fact.value for fact in snapshot.bookmarks} >= {"mark", "4"}
+    assert snapshot.hidden
+
+
+def test_footnote_part_and_relationship_are_reported(tmp_path) -> None:
+    data = _document()
+    rels_name = "word/_rels/document.xml.rels"
+    rels = next(e.data for e in read_package_entries(data) if e.name == rels_name)
+    rel = (
+        b'<Relationship Id="rIdFactsNote" '
+        b'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" '
+        b'Target="footnotes.xml"/>'
+    )
+    rels = rels.replace(b"</Relationships>", rel + b"</Relationships>")
+    types = next(e.data for e in read_package_entries(data) if e.name == "[Content_Types].xml")
+    override = (
+        b'<Override PartName="/word/footnotes.xml" '
+        b'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/>'
+    )
+    types = types.replace(b"</Types>", override + b"</Types>")
+    notes = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:footnote w:id="1"><w:p><w:r><w:t>note</w:t></w:r></w:p></w:footnote>'
+        b"</w:footnotes>"
+    )
+    changed = _rewrite(
+        tmp_path, data, {rels_name: rels, "[Content_Types].xml": types, "word/footnotes.xml": notes}
+    )
+
+    snapshot = docx_facts(changed)
+
+    assert any(note.value == "1" and note.target == "note" for note in snapshot.notes)
+    assert "word/footnotes.xml" in snapshot.reachable_parts
+
+
+def test_malformed_xml_and_missing_relationship_target_fail_closed(tmp_path) -> None:
+    data = _document()
+    with pytest.raises(PackageError):
+        docx_facts(_rewrite(tmp_path, data, {"word/document.xml": b"<broken>"}))
+
+    rels_name = "word/_rels/document.xml.rels"
+    rels = next(e.data for e in read_package_entries(data) if e.name == rels_name)
+    rel = b'<Relationship Id="rMissing" Type="urn:test" Target="missing.xml"/>'
+    with pytest.raises(PackageError, match="missing"):
+        docx_facts(
+            _rewrite(
+                tmp_path,
+                data,
+                {rels_name: rels.replace(b"</Relationships>", rel + b"</Relationships>")},
+            )
+        )
+
+
+def test_compare_detects_lost_container_surface_part_and_policy(tmp_path) -> None:
+    before = _document("before")
+    after = _document("after")
+
+    comparison = compare_docx(before, after)
+
+    assert not comparison.allowed
+    assert any(change.kind is ChangeKind.CHANGED for change in comparison.container_changes)
+    assert comparison.surface_changes
+    assert comparison.part_changes
+
+    policy = TransformPolicy(
+        allowed_part_changes=frozenset({ChangeKind.CHANGED}),
+        allowed_surface_changes=frozenset({ChangeKind.CHANGED}),
+        allowed_container_changes=frozenset({ChangeKind.CHANGED}),
+        allowed_fact_categories=frozenset({"*"}),
+    )
+    assert compare_docx(before, after, policy).allowed
+
+    empty = _document("")
+    lost = compare_docx(before, empty, TransformPolicy.allow_all())
+    assert any(change.kind is ChangeKind.CHANGED for change in lost.container_changes)
