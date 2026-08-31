@@ -8,7 +8,12 @@ from lxml import etree
 
 from .docx_models import AddressableComment
 from .docx_package import PackageError, parse_package_xml, read_package_entries
-from .docx_review_models import ReviewCoverage, ReviewDiagnostic, ReviewMarkupInventory
+from .docx_review_models import (
+    CommentRevisionAssociation,
+    ReviewCoverage,
+    ReviewDiagnostic,
+    ReviewMarkupInventory,
+)
 from .docx_revisions import RevisionOperationError, inventory_revisions_bytes
 from .docx_stories import index_stories
 
@@ -24,6 +29,7 @@ def inventory_review_markup(data: bytes) -> ReviewMarkupInventory:
         return ReviewMarkupInventory(
             revisions=(),
             comments=(),
+            comment_revision_associations=(),
             coverage=ReviewCoverage.INCOMPLETE,
             diagnostics=(ReviewDiagnostic("package_unreadable", str(exc)),),
         )
@@ -43,8 +49,82 @@ def inventory_review_markup(data: bytes) -> ReviewMarkupInventory:
     return ReviewMarkupInventory(
         revisions=revision_inventory.revisions,
         comments=comments,
+        comment_revision_associations=_comment_revision_associations(entries, comments),
         coverage=ReviewCoverage.INCOMPLETE if diagnostics else ReviewCoverage.COMPLETE,
         diagnostics=tuple(diagnostics),
+    )
+
+
+def _comment_revision_associations(
+    entries: tuple[Any, ...], comments: tuple[AddressableComment, ...]
+) -> tuple[CommentRevisionAssociation, ...]:
+    catalog = {comment.comment_id: comment for comment in comments}
+    revisions = {"ins", "del", "moveFrom", "moveTo"}
+
+    def locator_for(comment_id: str) -> str | None:
+        comment = catalog.get(comment_id)
+        return comment.locator if comment is not None else None
+
+    found: dict[str, tuple[set[str], set[str], str | None]] = {}
+    for entry in entries:
+        if not entry.name.startswith("word/") or not entry.name.endswith(".xml"):
+            continue
+        if entry.name == "word/comments.xml":
+            continue
+        root = parse_package_xml(entry.data, part_name=entry.name)
+        active: set[str] = set()
+        for element in root.iter():
+            local = _local(element.tag)
+            if local == "p":
+                ids = {
+                    value
+                    for child in element.iter()
+                    if _local(child.tag) in {"commentRangeStart", "commentReference"}
+                    if (value := _attr(child, "id")) is not None
+                }
+                kinds = {
+                    _local(child.tag) for child in element.iter() if _local(child.tag) in revisions
+                }
+                if kinds:
+                    for comment_id in ids:
+                        row = found.setdefault(
+                            comment_id,
+                            (
+                                set(),
+                                set(),
+                                locator_for(comment_id),
+                            ),
+                        )
+                        row[0].update(kinds)
+                        row[1].add(entry.name)
+            if local == "commentRangeStart":
+                range_id = _attr(element, "id")
+                if range_id is not None:
+                    active.add(range_id)
+            elif local == "commentRangeEnd":
+                range_id = _attr(element, "id")
+                if range_id is not None:
+                    active.discard(range_id)
+            elif local in revisions:
+                for comment_id in active:
+                    row = found.setdefault(
+                        comment_id,
+                        (
+                            set(),
+                            set(),
+                            locator_for(comment_id),
+                        ),
+                    )
+                    row[0].add(local)
+                    row[1].add(entry.name)
+    return tuple(
+        CommentRevisionAssociation(
+            comment_id,
+            tuple(sorted(kinds)),
+            tuple(sorted(parts)),
+            locator,
+        )
+        for comment_id, (kinds, parts, locator) in sorted(found.items())
     )
 
 

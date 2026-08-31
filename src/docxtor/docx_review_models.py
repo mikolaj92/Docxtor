@@ -32,9 +32,18 @@ class ReviewDiagnostic:
 
 
 @dataclass(frozen=True)
+class CommentRevisionAssociation:
+    comment_id: str
+    revision_kinds: tuple[str, ...]
+    part_names: tuple[str, ...]
+    locator: str | None = None
+
+
+@dataclass(frozen=True)
 class ReviewMarkupInventory:
     revisions: tuple[Revision, ...]
     comments: tuple[AddressableComment, ...]
+    comment_revision_associations: tuple[CommentRevisionAssociation, ...]
     coverage: ReviewCoverage
     diagnostics: tuple[ReviewDiagnostic, ...]
 

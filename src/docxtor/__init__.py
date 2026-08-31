@@ -1,4 +1,4 @@
-__version__ = "0.8.6"
+__version__ = "0.8.7"
 
 from .common import (
     DOCX_MIME,
@@ -89,9 +89,15 @@ from .docx_package import (
     restore_semantically_unchanged_xml_parts,
     write_package_atomically,
 )
+from .docx_properties import (
+    read_core_keywords,
+    remove_core_keyword_values,
+    set_core_keywords,
+)
 from .docx_publish import PublishError, PublishReceipt, publish_docx
 from .docx_review_inventory import inventory_review_markup
 from .docx_review_models import (
+    CommentRevisionAssociation,
     OperationReceipt,
     OperationStatus,
     ReviewBatchReceipt,
@@ -153,6 +159,9 @@ __all__ = [
     "UnreadablePartFact",
     "compare_docx",
     "docx_facts",
+    "read_core_keywords",
+    "remove_core_keyword_values",
+    "set_core_keywords",
     "RevisionAuthor",
     "RevisionMutationError",
     "RevisionMutationResult",
@@ -184,6 +193,7 @@ __all__ = [
     "inventory_revisions_bytes",
     "reject_all_revisions_bytes",
     "inventory_review_markup",
+    "CommentRevisionAssociation",
     "OperationReceipt",
     "OperationStatus",
     "ReviewBatchReceipt",

@@ -265,3 +265,15 @@ def test_page_layout_facts_project_application_and_break_pages(tmp_path) -> None
     assert snapshot.page_layout.breaks[0].kind == "explicit"
     assert snapshot.page_layout.breaks[0].container_id == "body:p:0"
     assert snapshot.page_layout.body_page_text == ("first", "")
+
+
+def test_core_keyword_operations_are_typed_and_preserve_package() -> None:
+    data = _document()
+    from docxtor import read_core_keywords, remove_core_keyword_values, set_core_keywords
+
+    changed = set_core_keywords(data, "keep;internal=abc")
+    stripped = remove_core_keyword_values(changed, prefix="internal=")
+
+    assert read_core_keywords(changed) == "keep;internal=abc"
+    assert read_core_keywords(stripped) == "keep"
+    assert docx_facts(stripped).coverage is FactsCoverage.COMPLETE
