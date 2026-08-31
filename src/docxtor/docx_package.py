@@ -28,6 +28,17 @@ _ASCII_IUNRESERVED = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class PackageLimits:
+    max_entries: int = MAX_PACKAGE_ENTRIES
+    max_entry_uncompressed_bytes: int = MAX_ENTRY_UNCOMPRESSED_BYTES
+    max_total_uncompressed_bytes: int = MAX_TOTAL_UNCOMPRESSED_BYTES
+    max_compression_ratio: int = MAX_COMPRESSION_RATIO
+
+
+DEFAULT_PACKAGE_LIMITS = PackageLimits()
+
+
 class PackageError(DocumentError):
     """A DOCX package could not be read or written without ambiguity."""
 
@@ -62,8 +73,13 @@ class PackageEntry:
         return info
 
 
-def read_package_entries(source: str | Path | bytes) -> tuple[PackageEntry, ...]:
-    """Read and validate every DOCX entry with zip-bomb and XML safety limits."""
+def read_package_entries(
+    source: str | Path | bytes,
+    *,
+    limits: PackageLimits = DEFAULT_PACKAGE_LIMITS,
+    validate_xml: bool = True,
+) -> tuple[PackageEntry, ...]:
+    """Read every DOCX entry with bounds and optional source-only XML validation."""
     opener: str | Path | BytesIO
     opener = BytesIO(source) if isinstance(source, bytes) else source
     try:
@@ -72,14 +88,14 @@ def read_package_entries(source: str | Path | bytes) -> tuple[PackageEntry, ...]
         raise PackageError(f"cannot open DOCX package: {exc}") from exc
     with archive:
         infos = archive.infolist()
-        _validate_infos(infos)
+        _validate_infos(infos, limits)
         entries: list[PackageEntry] = []
         for info in infos:
             try:
                 data = archive.read(info)
             except (OSError, BadZipFile, RuntimeError) as exc:
                 raise PackageError(f"cannot read DOCX entry {info.filename}: {exc}") from exc
-            if _needs_xml_validation(info.filename, data):
+            if validate_xml and _needs_xml_validation(info.filename, data):
                 parse_package_xml(data, part_name=info.filename)
             entries.append(PackageEntry.from_zip(info, data))
         return tuple(entries)
@@ -90,11 +106,12 @@ def write_package_atomically(
     entries: Iterable[PackageEntry],
     *,
     validate: Callable[[Path], None] | None = None,
+    limits: PackageLimits = DEFAULT_PACKAGE_LIMITS,
 ) -> None:
     """Write a deterministic DOCX beside destination and publish it atomically."""
     target = Path(destination)
     materialized = tuple(entries)
-    _validate_entry_records(materialized)
+    _validate_entry_records(materialized, limits)
     target.parent.mkdir(parents=True, exist_ok=True)
     with NamedTemporaryFile(
         dir=target.parent,
@@ -106,7 +123,7 @@ def write_package_atomically(
     try:
         _write_package(temporary, materialized)
         # Re-read with the same fail-closed contract before caller validation/publication.
-        read_package_entries(temporary)
+        read_package_entries(temporary, limits=limits)
         if validate is not None:
             validate(temporary)
         temporary.replace(target)
@@ -127,7 +144,7 @@ def restore_semantically_unchanged_xml_parts(
     """Restore original bytes when rendered XML has identical canonical meaning."""
     original = {
         entry.name: entry.data
-        for entry in read_package_entries(source_path)
+        for entry in read_package_entries(source_path, validate_xml=False)
         if entry.name.endswith((".xml", ".rels"))
     }
     rendered = read_package_entries(rendered_path)
@@ -171,9 +188,9 @@ def parse_package_xml(data: bytes, *, part_name: str = "<xml>") -> etree._Elemen
     return root
 
 
-def _validate_infos(infos: list[ZipInfo]) -> None:
-    if len(infos) > MAX_PACKAGE_ENTRIES:
-        raise PackageError(f"DOCX has {len(infos)} entries; limit is {MAX_PACKAGE_ENTRIES}")
+def _validate_infos(infos: list[ZipInfo], limits: PackageLimits) -> None:
+    if len(infos) > limits.max_entries:
+        raise PackageError(f"DOCX has {len(infos)} entries; limit is {limits.max_entries}")
     names = [info.filename for info in infos]
     for name in names:
         if not _is_valid_package_member_name(name):
@@ -182,19 +199,21 @@ def _validate_infos(infos: list[ZipInfo]) -> None:
     if len(equivalent) != len(set(equivalent)):
         raise PackageError("DOCX contains duplicate package member names")
     total = sum(info.file_size for info in infos)
-    if total > MAX_TOTAL_UNCOMPRESSED_BYTES:
+    if total > limits.max_total_uncompressed_bytes:
         raise PackageError(
-            f"DOCX uncompressed size {total} exceeds {MAX_TOTAL_UNCOMPRESSED_BYTES}"
+            f"DOCX uncompressed size {total} exceeds {limits.max_total_uncompressed_bytes}"
         )
     for info in infos:
-        if info.file_size > MAX_ENTRY_UNCOMPRESSED_BYTES:
+        if info.file_size > limits.max_entry_uncompressed_bytes:
             raise PackageError(f"DOCX entry {info.filename} uncompressed size exceeds limit")
         ratio = info.file_size / max(info.compress_size, 1)
-        if ratio > MAX_COMPRESSION_RATIO:
+        if ratio > limits.max_compression_ratio:
             raise PackageError(f"DOCX entry {info.filename} compression ratio exceeds limit")
 
 
-def _validate_entry_records(entries: tuple[PackageEntry, ...]) -> None:
+def _validate_entry_records(
+    entries: tuple[PackageEntry, ...], limits: PackageLimits
+) -> None:
     infos = []
     for entry in entries:
         info = entry.zip_info()
@@ -203,7 +222,7 @@ def _validate_entry_records(entries: tuple[PackageEntry, ...]) -> None:
         infos.append(info)
         if _needs_xml_validation(entry.name, entry.data):
             parse_package_xml(entry.data, part_name=entry.name)
-    _validate_infos(infos)
+    _validate_infos(infos, limits)
 
 
 def _write_package(path: Path, entries: tuple[PackageEntry, ...]) -> None:

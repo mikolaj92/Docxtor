@@ -8,6 +8,7 @@ import pytest
 from docxtor import (
     PackageEntry,
     PackageError,
+    PackageLimits,
     normalize_docx_timestamps,
     parse_package_xml,
     read_package_entries,
@@ -118,3 +119,22 @@ def test_restores_semantically_unchanged_xml_bytes(tmp_path: Path) -> None:
 def test_parse_package_xml_accepts_safe_xml() -> None:
     root = parse_package_xml(b"<root><child/></root>")
     assert root.tag == "root"
+
+
+def test_custom_limits_can_be_stricter_than_defaults(tmp_path: Path) -> None:
+    path = tmp_path / "limited.docx"
+    _write(path, [("word/document.xml", b"<document/>")])
+
+    with pytest.raises(PackageError, match="uncompressed size"):
+        read_package_entries(path, limits=PackageLimits(max_total_uncompressed_bytes=1))
+
+
+def test_restore_skips_malformed_source_xml_but_keeps_valid_rendered(tmp_path: Path) -> None:
+    source = tmp_path / "source.docx"
+    rendered = tmp_path / "rendered.docx"
+    _write(source, [("customXml/item1.xml", b"<properties>")])
+    _write(rendered, [("customXml/item1.xml", b"<properties />")])
+
+    restore_semantically_unchanged_xml_parts(source, rendered)
+
+    assert read_package_entries(rendered)[0].data == b"<properties />"

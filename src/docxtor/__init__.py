@@ -50,8 +50,10 @@ from .docx_mutations import (
     apply_surface_replacements,
 )
 from .docx_package import (
+    DEFAULT_PACKAGE_LIMITS,
     PackageEntry,
     PackageError,
+    PackageLimits,
     normalize_docx_timestamps,
     parse_package_xml,
     read_package_entries,
@@ -78,8 +80,10 @@ __all__ = [
     "DocxDocument",
     "DocxInventory",
     "InventoryCoverage",
+    "DEFAULT_PACKAGE_LIMITS",
     "PackageEntry",
     "PackageError",
+    "PackageLimits",
     "PackagePart",
     "SurfaceCapability",
     "SurfaceDisposition",
