@@ -189,6 +189,24 @@ def test_missing_first_and_even_stories_keep_default_ids(tmp_path: Path) -> None
     ]
 
 
+def test_interleaved_table_segments_follow_authored_block_order(tmp_path: Path) -> None:
+    path = tmp_path / "interleaved.docx"
+    source = PyDocxDocument()
+    source.add_paragraph("Before")
+    table = source.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "Cell"
+    source.add_paragraph("After")
+    source.save(path)
+
+    document = DocxDocument.open(path)
+
+    assert [(segment.container_id, segment.paragraph_index) for segment in document.segments] == [
+        ("body:p:0", 0),
+        ("table:0:r:0:c:0:p:0", 1),
+        ("body:p:1", 2),
+    ]
+
+
 def test_applies_replacements_without_removing_run_formatting(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"
