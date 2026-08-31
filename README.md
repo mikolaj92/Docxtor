@@ -34,10 +34,11 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git
 ```
 
-Pin `v0.4.4` or later. That tag includes nested revision/hyperlink writes,
-comment addressing, and unique merged-cell indexing. Tag `v0.4.1`
-(DocToText → Docxtor rename) still ships package version `0.4.0`, so a
-`v0.4.1` pin installs dist `0.4.0`.
+Pin `v0.5.0` or later for complete package inventory, neutral surface
+capabilities, and verified surface mutations. Earlier `v0.4.x` tags include
+stable text/revision/comment addressing but not the complete inventory contract.
+Tag `v0.4.1` still ships distribution version `0.4.0`; `v0.4.4` was the first
+correctly versioned stable-addressing pin.
 
 ## Basic Usage
 
