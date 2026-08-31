@@ -132,6 +132,28 @@ class NamedFact:
 
 
 @dataclass(frozen=True)
+class PageBreakFact:
+    kind: str
+    part_name: str
+    fact_id: str
+    container_id: str | None = None
+
+
+@dataclass(frozen=True)
+class PageLayoutFacts:
+    application_page_count: int | None
+    breaks: tuple[PageBreakFact, ...]
+    body_page_text: tuple[str, ...]
+
+    @property
+    def estimated_page_count(self) -> int | None:
+        candidates = [len(self.body_page_text)] if self.body_page_text else []
+        if self.application_page_count is not None:
+            candidates.append(self.application_page_count)
+        return max(candidates) if candidates else None
+
+
+@dataclass(frozen=True)
 class DocxStructureSnapshot:
     part_names: tuple[str, ...]
     relationship_identities: tuple[tuple[str, str], ...]
@@ -167,6 +189,7 @@ class DocxFactsSnapshot:
     embedded_objects: tuple[NamedFact, ...]
     media: tuple[NamedFact, ...]
     unreadable_parts: tuple[UnreadablePartFact, ...]
+    page_layout: PageLayoutFacts
     structure: DocxStructureSnapshot
 
 
@@ -297,6 +320,7 @@ def docx_facts(source: Source) -> DocxFactsSnapshot:
     stories = _stories(paragraphs)
     features = _features(xml_roots, paragraphs, relationships, set(entry_data))
     orphans = tuple(sorted(set(entry_data) - reachable - {"[Content_Types].xml", "_rels/.rels"}))
+    page_layout = _page_layout(xml_roots, paragraphs)
     coverage = FactsCoverage.COMPLETE if not diagnostics else FactsCoverage.INCOMPLETE
     structure = DocxStructureSnapshot(
         part_names=tuple(sorted(entry_data)),
@@ -343,6 +367,7 @@ def docx_facts(source: Source) -> DocxFactsSnapshot:
             UnreadablePartFact(name, inventory_parts[name].error or "unreadable_xml")
             for name in inventory.unreadable_parts
         ),
+        page_layout,
         structure,
     )
 
@@ -362,6 +387,58 @@ def _section_property_hashes(
             payload = etree.tostring(section, method="c14n")
             values.append(sha256(payload).hexdigest())
     return tuple(values)
+
+
+def _page_layout(
+    roots: dict[str, etree._Element], paragraphs: tuple[ParagraphFact, ...]
+) -> PageLayoutFacts:
+    app_pages: int | None = None
+    app_root = roots.get("docProps/app.xml")
+    if app_root is not None:
+        for node in app_root.iter():
+            if etree.QName(node).localname != "Pages":
+                continue
+            raw = (node.text or "").strip()
+            if raw.isdigit() and int(raw) > 0:
+                app_pages = int(raw)
+            break
+    breaks: list[PageBreakFact] = []
+    chunks: list[list[str]] = [[]]
+    body = roots.get("word/document.xml")
+    paragraph_paths = {
+        paragraph.xml_path: paragraph.container_id
+        for paragraph in paragraphs
+        if paragraph.part_name == "word/document.xml" and paragraph.xml_path
+    }
+    if body is not None:
+        tree = body.getroottree()
+        for node in body.iter():
+            local = etree.QName(node).localname
+            kind = None
+            if local == "lastRenderedPageBreak":
+                kind = "rendered"
+            elif local == "br" and node.get(f"{{{_W_NS}}}type") == "page":
+                kind = "explicit"
+            if kind is not None:
+                current = node
+                container_id = None
+                while current is not None:
+                    if etree.QName(current).localname == "p":
+                        container_id = paragraph_paths.get(tree.getpath(current))
+                        break
+                    current = current.getparent()
+                breaks.append(
+                    PageBreakFact(
+                        kind,
+                        "word/document.xml",
+                        f"word/document.xml:{tree.getpath(node)}",
+                        container_id,
+                    )
+                )
+                chunks.append([])
+            elif local in {"t", "delText"} and node.text:
+                chunks[-1].append(node.text)
+    return PageLayoutFacts(app_pages, tuple(breaks), tuple("".join(chunk) for chunk in chunks))
 
 
 def compare_docx(

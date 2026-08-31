@@ -1,4 +1,4 @@
-__version__ = "0.8.4"
+__version__ = "0.8.5"
 
 from .common import (
     DOCX_MIME,
@@ -50,6 +50,8 @@ from .docx_facts import (
     FactDiagnostic,
     FactsCoverage,
     NamedFact,
+    PageBreakFact,
+    PageLayoutFacts,
     ParagraphFact,
     RelationshipFact,
     StoryFact,
@@ -139,6 +141,8 @@ __all__ = [
     "FactDiagnostic",
     "FactsCoverage",
     "NamedFact",
+    "PageBreakFact",
+    "PageLayoutFacts",
     "ParagraphFact",
     "RelationshipFact",
     "StoryFact",
