@@ -1101,18 +1101,20 @@ class DocxDocument:
         # anchors. Text boxes are appended after headers/footers so documents
         # without boxes keep existing body/table/header indices.
         global_paragraph_index = 0
+        body_paragraph_index = 0
         paragraphs_by_index: dict[int, Paragraph] = {}
         paragraphs_by_container: dict[str, Paragraph] = {}
 
         def add_paragraphs(paragraphs: list[Paragraph], prefix: str) -> None:
-            nonlocal global_paragraph_index
+            nonlocal body_paragraph_index, global_paragraph_index
             for local_idx, para in enumerate(paragraphs):
                 paragraphs_by_index[global_paragraph_index] = para
 
                 # container_id: body uses global index for stability (matches Dike anchors);
                 # other sections use local index within their container.
                 if prefix == "body":
-                    cid = f"body:p:{global_paragraph_index}"
+                    cid = f"body:p:{body_paragraph_index}"
+                    body_paragraph_index += 1
                 else:
                     cid = f"{prefix}:p:{local_idx}"
 
@@ -1218,18 +1220,26 @@ class DocxDocument:
                     )
                 )
 
-        # Body (include w:sdt/w:sdtContent paragraphs omitted by python-docx).
-        # Skip floating text boxes here; they are indexed as txbx:N below.
-        add_paragraphs(
-            _paragraphs_from_container(doc.element.body, doc._body, skip_text_boxes=True),
-            "body",
-        )
-
-        # Tables. python-docx repeats the same ``cell._tc`` for every grid
-        # column covered by ``w:gridSpan`` and for every ``w:vMerge``
-        # continuation row. Index each unique XML cell once, at the first
-        # row/column id (#36 / #48).
-        for ti, table in enumerate(doc.tables):
+        # Body paragraphs and tables in authored XML order. Docxtor owns this
+        # mechanical block walk so consumers never rebuild a second OOXML order map.
+        # Body ids still count body paragraphs only; table ids still use python-docx's
+        # table/row/cell coordinates and unique physical cells (#36 / #48).
+        table_index = 0
+        for block in doc.element.body.iterchildren():
+            if block.tag == W_P:
+                add_paragraphs([Paragraph(block, doc._body)], "body")
+                continue
+            if block.tag == W_SDT:
+                paragraphs: list[Paragraph] = []
+                for content in block.iter(W_SDT_CONTENT):
+                    paragraphs.extend(
+                        _paragraphs_from_container(content, doc._body, skip_text_boxes=True)
+                    )
+                add_paragraphs(paragraphs, "body")
+                continue
+            if block.tag != W_TBL:
+                continue
+            table = doc.tables[table_index]
             seen_cells: set[object] = set()
             for ri, row in enumerate(table.rows):
                 for ci, cell in enumerate(row.cells):
@@ -1238,8 +1248,9 @@ class DocxDocument:
                     seen_cells.add(cell._tc)
                     add_paragraphs(
                         _paragraphs_from_container(cell._tc, cell, skip_text_boxes=True),
-                        f"table:{ti}:r:{ri}:c:{ci}",
+                        f"table:{table_index}:r:{ri}:c:{ci}",
                     )
+            table_index += 1
 
         # Headers / Footers. Accessing ``._element`` on an absent or linked
         # story calls python-docx's get-or-add path and mutates the package.
