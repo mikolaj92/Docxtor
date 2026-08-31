@@ -1,6 +1,6 @@
 [project]
 name = "docxtor"
-version = "0.5.0"
+version = "0.5.1"
 description = "Extract editable text segments from documents and inject changed text back in memory."
 readme = "README.md"
 requires-python = ">=3.11"
