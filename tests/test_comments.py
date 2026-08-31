@@ -624,3 +624,75 @@ def test_move_from_inside_comment_fails_closed_without_partial_write(
             strict=True,
         )
     assert list(doc.texts) == original
+
+
+
+def test_comment_reference_recovers_locator_when_range_start_is_outside_paragraph(
+    tmp_path: Path,
+) -> None:
+    path = _plain_comment_docx(tmp_path / "sdt-start.docx", body="Anchored.")
+    with ZipFile(path) as bundle:
+        document_xml = bundle.read("word/document.xml")
+    root = ElementTree.fromstring(document_xml)
+    start = root.find(f".//{_W}commentRangeStart")
+    assert start is not None
+    body = root.find(f"{_W}body")
+    assert body is not None
+    paragraph = root.find(f".//{_W}p")
+    assert paragraph is not None
+    paragraph.remove(start)
+    sdt = ElementTree.Element(f"{_W}sdt")
+    content = ElementTree.SubElement(sdt, f"{_W}sdtContent")
+    content.append(start)
+    body.insert(0, sdt)
+    _zip_replace(
+        path,
+        {
+            "word/document.xml": ElementTree.tostring(
+                root, encoding="UTF-8", xml_declaration=True
+            )
+        },
+    )
+
+    comments = DocxDocument.open(path).comments
+    assert len(comments) == 1
+    assert comments[0].locator == "body:p:0"
+
+
+def test_comment_anchor_text_skips_deleted_runs(tmp_path: Path) -> None:
+    path = _plain_comment_docx(tmp_path / "visible-anchor.docx", body="Alpha ")
+    with ZipFile(path) as bundle:
+        document_xml = bundle.read("word/document.xml")
+    root = ElementTree.fromstring(document_xml)
+    paragraph = root.find(f".//{_W}p")
+    assert paragraph is not None
+    end = paragraph.find(f"{_W}commentRangeEnd")
+    assert end is not None
+    end_index = list(paragraph).index(end)
+    insertion = ElementTree.Element(f"{_W}ins")
+    insertion.set(f"{_W}id", "1")
+    insertion.set(f"{_W}author", "Source")
+    insert_run = ElementTree.SubElement(insertion, f"{_W}r")
+    insert_text = ElementTree.SubElement(insert_run, f"{_W}t")
+    insert_text.text = "replacement"
+    deletion = ElementTree.Element(f"{_W}del")
+    deletion.set(f"{_W}id", "2")
+    deletion.set(f"{_W}author", "Source")
+    delete_run = ElementTree.SubElement(deletion, f"{_W}r")
+    delete_text = ElementTree.SubElement(delete_run, f"{_W}delText")
+    delete_text.text = "target"
+    paragraph.insert(end_index, insertion)
+    paragraph.insert(end_index + 1, deletion)
+    _zip_replace(
+        path,
+        {
+            "word/document.xml": ElementTree.tostring(
+                root, encoding="UTF-8", xml_declaration=True
+            )
+        },
+    )
+
+    comments = DocxDocument.open(path).comments
+    assert len(comments) == 1
+    assert comments[0].locator == "body:p:0"
+    assert comments[0].anchor_text == "Alpha replacement"
