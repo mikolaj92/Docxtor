@@ -273,13 +273,16 @@ class DocxDocument:
             if i not in self._paragraphs_by_index:
                 continue
             para = self._paragraphs_by_index[i]
-            # find a container_id for it (prefer body: global, else scan)
-            cid = f"body:p:{i}"
-            if cid not in self._paragraphs_by_container:
-                for c, p in self._paragraphs_by_container.items():
-                    if p is para:
-                        cid = c
-                        break
+            # Resolve by paragraph identity. A body ID that happens to equal the
+            # global index can belong to a different paragraph when a table comes first.
+            cid = next(
+                (
+                    container_id
+                    for container_id, candidate in self._paragraphs_by_container.items()
+                    if candidate is para
+                ),
+                f"body:p:{i}",
+            )
             out.append((i, cid, para))
         return out
 

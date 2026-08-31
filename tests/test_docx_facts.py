@@ -278,3 +278,17 @@ def test_core_keyword_operations_are_typed_and_preserve_package() -> None:
     assert set_core_keywords(changed, "keep;internal=abc") == changed
     assert read_core_keywords(stripped) == "keep"
     assert docx_facts(stripped).coverage is FactsCoverage.COMPLETE
+
+
+def test_table_before_body_keeps_distinct_typed_coordinates() -> None:
+    document = Document()
+    document.add_table(rows=1, cols=1).cell(0, 0).text = "cell"
+    document.add_paragraph("body")
+    stream = BytesIO()
+    document.save(stream)
+    snapshot = docx_facts(stream.getvalue())
+    assert [(item.container_id, item.text) for item in snapshot.paragraphs] == [
+        ("table:0:r:0:c:0:p:0", "cell"),
+        ("body:p:0", "body"),
+    ]
+    assert snapshot.structure.table_ids == ("table:0",)
