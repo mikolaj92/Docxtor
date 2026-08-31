@@ -97,6 +97,13 @@ inventory. Docxtor reopens the output and returns a disposition for every
 requested surface. Unknown targets, stale hashes, preserve-only surfaces, and
 unconfirmed writes fail before partial output is returned.
 
+For consumers that implement higher-level review grammar, Docxtor also exposes
+safe neutral package primitives: `read_package_entries`,
+`write_package_atomically`, `normalize_docx_timestamps`, and
+`restore_semantically_unchanged_xml_parts`. They validate OPC member names,
+duplicates, archive expansion limits, XML syntax and DOCTYPE before publishing
+an output. These APIs do not interpret revisions, comments, PII, or law.
+
 ```python
 from docxtor import SurfaceReplacement
 
