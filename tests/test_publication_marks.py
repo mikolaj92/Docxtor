@@ -31,3 +31,12 @@ def test_mark_and_appendix_are_typed_physical_operations() -> None:
     cleaned, changed = remove_body_appendix(appended, heading=appendix.heading)
     assert changed and not has_body_appendix(cleaned, heading=appendix.heading)
     assert Document(BytesIO(cleaned)).paragraphs[0].text == "original"
+
+
+def test_unreadable_mark_package_has_public_error() -> None:
+    import pytest
+
+    from docxtor import PublicationMarkError
+
+    with pytest.raises(PublicationMarkError, match="unreadable"):
+        has_body_appendix(b"not zip", heading="x")
