@@ -7,6 +7,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import pytest
 from lxml import etree
 
+from docxtor import inventory_review_markup
 from docxtor.docx_revisions import (
     AcceptRevisionsError,
     RejectRevisionsError,
@@ -164,3 +165,25 @@ def test_reject_fails_closed_for_structural_cell_revision() -> None:
     )
     with pytest.raises(RejectRevisionsError, match="cellIns"):
         reject_all_revisions_bytes(data)
+
+
+def test_review_inventory_associates_comment_with_revision() -> None:
+    body = (
+        '<w:p><w:commentRangeStart w:id="0"/>'
+        '<w:ins w:id="1"><w:r><w:t>x</w:t></w:r></w:ins>'
+        '<w:commentRangeEnd w:id="0"/>'
+        '<w:r><w:commentReference w:id="0"/></w:r></w:p>'
+    )
+    comments = (
+        f'<w:comments xmlns:w="{W}"><w:comment w:id="0" w:author="A">'
+        "<w:p><w:r><w:t>remark</w:t></w:r></w:p></w:comment></w:comments>"
+    )
+    data = _package(_document(body), **{"word/comments.xml": comments})
+
+    inventory = inventory_review_markup(data)
+
+    assert len(inventory.comment_revision_associations) == 1
+    association = inventory.comment_revision_associations[0]
+    assert association.comment_id == "0"
+    assert association.revision_kinds == ("ins",)
+    assert association.part_names == ("word/document.xml",)
