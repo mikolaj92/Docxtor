@@ -1,4 +1,4 @@
-__version__ = "0.8.5"
+__version__ = "0.8.6"
 
 from .common import (
     DOCX_MIME,
@@ -68,6 +68,7 @@ from .docx_inventory import (
     SurfaceCapability,
     SurfaceKind,
     SurfaceVisibility,
+    inventory_docx,
 )
 from .docx_mutations import (
     SurfaceDisposition,
@@ -219,6 +220,7 @@ __all__ = [
     "SurfaceMutationResult",
     "SurfaceReplacement",
     "SurfaceVisibility",
+    "inventory_docx",
     "InlineSegment",
     "InlineSegmentKind",
     "PdfExtractionMode",
