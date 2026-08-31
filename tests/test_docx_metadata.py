@@ -5,6 +5,7 @@ from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from docx import Document
+
 from docxtor import inspect_docx_metadata, sanitize_docx_metadata
 
 
