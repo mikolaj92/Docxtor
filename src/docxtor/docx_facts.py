@@ -129,6 +129,9 @@ class DocxStructureSnapshot:
     container_ids: tuple[str, ...]
     field_ids: tuple[str, ...]
     bookmark_ids: tuple[str, ...]
+    table_ids: tuple[str, ...] = ()
+    section_property_hashes: tuple[str, ...] = ()
+    coverage: FactsCoverage = FactsCoverage.COMPLETE
 
 
 @dataclass(frozen=True)
@@ -275,13 +278,26 @@ def docx_facts(source: Source) -> DocxFactsSnapshot:
     }
     features = _features(xml_roots, paragraphs, relationships, set(entry_data))
     orphans = tuple(sorted(set(entry_data) - reachable - {"[Content_Types].xml", "_rels/.rels"}))
+    coverage = FactsCoverage.COMPLETE if not diagnostics else FactsCoverage.INCOMPLETE
     structure = DocxStructureSnapshot(
-        tuple(sorted(entry_data)),
-        tuple(rel.identity for rel in relationships),
-        tuple(story.story_id for story in stories),
-        tuple(p.container_id for p in paragraphs),
-        tuple(f.fact_id for f in features["fields"]),
-        tuple(f.fact_id for f in features["bookmarks"]),
+        part_names=tuple(sorted(entry_data)),
+        relationship_identities=tuple(rel.identity for rel in relationships),
+        story_ids=tuple(story.story_id for story in stories),
+        container_ids=tuple(p.container_id for p in paragraphs),
+        field_ids=tuple(f.fact_id for f in features["fields"]),
+        bookmark_ids=tuple(f.fact_id for f in features["bookmarks"]),
+        table_ids=tuple(
+            f"table:{index}"
+            for index in sorted(
+                {
+                    paragraph.coordinate.table_index
+                    for paragraph in paragraphs
+                    if paragraph.coordinate.table_index is not None
+                }
+            )
+        ),
+        section_property_hashes=_section_property_hashes(xml_roots),
+        coverage=coverage,
     )
     return DocxFactsSnapshot(
         FactsCoverage.COMPLETE if not diagnostics else FactsCoverage.INCOMPLETE,
@@ -310,6 +326,19 @@ def docx_facts(source: Source) -> DocxFactsSnapshot:
 
 # A discoverable noun/verb pair for callers that prefer ``snapshot_docx``.
 snapshot_docx = docx_facts
+
+
+def _section_property_hashes(
+    xml_roots: dict[str, etree._Element],
+) -> tuple[str, ...]:
+    values: list[str] = []
+    for part_name, root in sorted(xml_roots.items()):
+        if not part_name.startswith("word/"):
+            continue
+        for section in root.iter(f"{{{_W_NS}}}sectPr"):
+            payload = etree.tostring(section, method="c14n")
+            values.append(sha256(payload).hexdigest())
+    return tuple(values)
 
 
 def compare_docx(

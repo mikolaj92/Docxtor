@@ -1,4 +1,4 @@
-__version__ = "0.7.1"
+__version__ = "0.8.0"
 
 from .common import (
     DOCX_MIME,
@@ -41,8 +41,18 @@ from .docx_comment_mutations import (
     remove_comments,
 )
 from .docx_facts import (
+    ChangeKind,
+    ContainerCoordinate,
+    DocxComparison,
     DocxFactsSnapshot,
     DocxStructureSnapshot,
+    FactChange,
+    FactDiagnostic,
+    FactsCoverage,
+    NamedFact,
+    ParagraphFact,
+    RelationshipFact,
+    StoryFact,
     TransformPolicy,
     compare_docx,
     docx_facts,
@@ -121,6 +131,16 @@ from .text import PlainTextDocument
 
 __all__ = [
     "__version__",
+    "ChangeKind",
+    "ContainerCoordinate",
+    "DocxComparison",
+    "FactChange",
+    "FactDiagnostic",
+    "FactsCoverage",
+    "NamedFact",
+    "ParagraphFact",
+    "RelationshipFact",
+    "StoryFact",
     "DocxFactsSnapshot",
     "DocxStructureSnapshot",
     "TransformPolicy",
@@ -222,4 +242,28 @@ __all__ = [
     "read_package_entries",
     "restore_semantically_unchanged_xml_parts",
     "write_package_atomically",
+    "CombinedTransactionReceipt",
+    "PackageDisposition",
+    "PackageDispositionStatus",
+    "PackageMutation",
+    "PackageMutationError",
+    "PackageMutationKind",
+    "PackageTransactionReceipt",
+    "apply_docx_transaction",
+    "apply_package_transaction",
+    "PackageGraph",
+    "PackageRelationship",
+    "SURFACE_LOCATOR_VERSION",
 ]
+
+from .docx_combined_transaction import CombinedTransactionReceipt, apply_docx_transaction
+from .docx_inventory import SURFACE_LOCATOR_VERSION, PackageGraph, PackageRelationship
+from .docx_package_transaction import (
+    PackageDisposition,
+    PackageDispositionStatus,
+    PackageMutation,
+    PackageMutationError,
+    PackageMutationKind,
+    PackageTransactionReceipt,
+    apply_package_transaction,
+)

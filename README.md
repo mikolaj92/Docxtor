@@ -34,7 +34,7 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git
 ```
 
-Pin `v0.7.0` or later for complete mechanical facts snapshot (`DocxFactsSnapshot`) and structural comparison (`compare_docx`). `v0.6.0` introduced neutral Word review markup, typed operation receipts, and atomic DOCX publication. `v0.5.2` introduced complete package inventory,
+Pin `v0.8.0` or later for qualified package surfaces, OPC graph, combined transactions, remove/cascade, and global postflight. Pin `v0.7.0` or later for complete mechanical facts snapshot (`DocxFactsSnapshot`) and structural comparison (`compare_docx`). `v0.6.0` introduced neutral Word review markup, typed operation receipts, and atomic DOCX publication. `v0.5.2` introduced complete package inventory,
 neutral surface capabilities, and verified surface mutations. Earlier `v0.4.x` tags include
 stable text/revision/comment addressing but not the complete inventory contract.
 Tag `v0.4.1` still ships distribution version `0.4.0`; `v0.4.4` was the first
