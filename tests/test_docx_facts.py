@@ -275,5 +275,6 @@ def test_core_keyword_operations_are_typed_and_preserve_package() -> None:
     stripped = remove_core_keyword_values(changed, prefix="internal=")
 
     assert read_core_keywords(changed) == "keep;internal=abc"
+    assert set_core_keywords(changed, "keep;internal=abc") == changed
     assert read_core_keywords(stripped) == "keep"
     assert docx_facts(stripped).coverage is FactsCoverage.COMPLETE
