@@ -26,6 +26,8 @@ def set_core_keywords(data: bytes, value: str) -> bytes:
     inventory = inventory_docx(data)
     surface = _keyword_surface(inventory)
     if surface is not None:
+        if surface.value == value:
+            return data
         mutation = PackageMutation(
             "set-core-keywords",
             PackageMutationKind.REPLACE_SURFACE,
