@@ -208,17 +208,15 @@ def _xml_surfaces(part_name: str, root: etree._Element) -> list[DocumentSurface]
     for element in root.iter():
         path = tree.getpath(element)
         local = _local_name(element.tag)
-        if element.text and element.text.strip():
+        if element.text is not None or (local in _VISIBLE_TEXT_NAMES and len(element) == 0):
             surfaces.append(
                 _surface(
                     surface_id=f"xml:{part_name}:{path}:text",
                     kind=(
-                        SurfaceKind.TEXT
-                        if local in _VISIBLE_TEXT_NAMES
-                        else SurfaceKind.XML_TEXT
+                        SurfaceKind.TEXT if local in _VISIBLE_TEXT_NAMES else SurfaceKind.XML_TEXT
                     ),
                     part_name=part_name,
-                    value=element.text,
+                    value=element.text or "",
                     visibility=(
                         SurfaceVisibility.VISIBLE
                         if local in _VISIBLE_TEXT_NAMES
@@ -231,7 +229,7 @@ def _xml_surfaces(part_name: str, root: etree._Element) -> list[DocumentSurface]
             )
         for raw_name, value in sorted(element.attrib.items()):
             attr_name = _local_name(raw_name)
-            if not value or attr_name in _SKIP_XML_LOCAL_NAMES:
+            if attr_name in _SKIP_XML_LOCAL_NAMES:
                 continue
             surfaces.append(
                 _surface(
@@ -267,9 +265,7 @@ def _relationship_surfaces(part_name: str, root: etree._Element) -> list[Documen
                 value=target,
                 visibility=SurfaceVisibility.HIDDEN,
                 capability=(
-                    SurfaceCapability.VALUE_REPLACE
-                    if external
-                    else SurfaceCapability.PRESERVE_ONLY
+                    SurfaceCapability.VALUE_REPLACE if external else SurfaceCapability.PRESERVE_ONLY
                 ),
                 relationship_id=rel_id,
                 relationship_type=rel_type,

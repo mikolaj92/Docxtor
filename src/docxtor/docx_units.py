@@ -34,7 +34,6 @@ class _TextUnit:
         )
 
 
-
 def _wrapper_context(node: Any) -> dict[str, Any]:
     role: SpanRole = "run"
     revision_id = revision_author = revision_date = None

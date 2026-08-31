@@ -449,18 +449,18 @@ def test_user_footnotes_and_endnotes_are_addressable_and_round_trip(tmp_path: Pa
                 '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                 '<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
                 '<w:footnote w:type="separator" w:id="-1">'
-                '<w:p><w:r><w:separator/></w:r></w:p></w:footnote>'
+                "<w:p><w:r><w:separator/></w:r></w:p></w:footnote>"
                 '<w:footnote w:id="2"><w:p><w:r><w:t>Private footnote</w:t></w:r></w:p>'
-                '<w:p><w:r><w:t>Second paragraph</w:t></w:r></w:p></w:footnote>'
-                '</w:footnotes>'
+                "<w:p><w:r><w:t>Second paragraph</w:t></w:r></w:p></w:footnote>"
+                "</w:footnotes>"
             ),
             "word/endnotes.xml": (
                 '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                 '<w:endnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
                 '<w:endnote w:type="continuationSeparator" w:id="0">'
-                '<w:p><w:r><w:continuationSeparator/></w:r></w:p></w:endnote>'
+                "<w:p><w:r><w:continuationSeparator/></w:r></w:p></w:endnote>"
                 '<w:endnote w:id="7"><w:p><w:r><w:t>Private endnote</w:t></w:r></w:p></w:endnote>'
-                '</w:endnotes>'
+                "</w:endnotes>"
             ),
         },
         overrides=(
@@ -626,7 +626,6 @@ def test_move_from_inside_comment_fails_closed_without_partial_write(
     assert list(doc.texts) == original
 
 
-
 def test_comment_reference_recovers_locator_when_range_start_is_outside_paragraph(
     tmp_path: Path,
 ) -> None:
@@ -647,11 +646,7 @@ def test_comment_reference_recovers_locator_when_range_start_is_outside_paragrap
     body.insert(0, sdt)
     _zip_replace(
         path,
-        {
-            "word/document.xml": ElementTree.tostring(
-                root, encoding="UTF-8", xml_declaration=True
-            )
-        },
+        {"word/document.xml": ElementTree.tostring(root, encoding="UTF-8", xml_declaration=True)},
     )
 
     comments = DocxDocument.open(path).comments
@@ -685,11 +680,7 @@ def test_comment_anchor_text_skips_deleted_runs(tmp_path: Path) -> None:
     paragraph.insert(end_index + 1, deletion)
     _zip_replace(
         path,
-        {
-            "word/document.xml": ElementTree.tostring(
-                root, encoding="UTF-8", xml_declaration=True
-            )
-        },
+        {"word/document.xml": ElementTree.tostring(root, encoding="UTF-8", xml_declaration=True)},
     )
 
     comments = DocxDocument.open(path).comments

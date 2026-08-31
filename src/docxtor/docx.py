@@ -80,13 +80,7 @@ __all__ = [
 
 
 class DocxDocument:
-    """DOCX editing surface backed by python-docx (the proper library for the format).
-
-    - Stable container_id + paragraph_index addressing.
-    - Whole segment or offset-based partial replacements (run splitting).
-    - Preserves formatting because we operate on runs.
-    - Roundtrips via python-docx save.
-    """
+    """DOCX editing surface backed by python-docx."""
 
     def __init__(
         self,
@@ -406,16 +400,18 @@ class DocxDocument:
         validators: Iterable[Any] = (),
     ) -> PublishReceipt:
         """Publish through preservation, validation, and one atomic replace."""
-        return publish_docx(
-            self.to_bytes(), path, source=self._source_bytes, validators=validators
-        )
+        return publish_docx(self.to_bytes(), path, source=self._source_bytes, validators=validators)
 
     def save_docx(self, path: str | Path) -> None:
-        """Publish the document safely. Prefer :meth:`publish` when a receipt is needed."""
         self.publish(path)
 
     def review_inventory(self) -> ReviewMarkupInventory:
         return inventory_review_markup(self.to_bytes())
+
+    def facts(self) -> Any:
+        from .docx_facts import docx_facts
+
+        return docx_facts(self.to_bytes())
 
     def apply_review_batch(self, commands: Sequence[ReviewCommand]) -> None:
         receipt = apply_review_batch(self.to_bytes(), commands)

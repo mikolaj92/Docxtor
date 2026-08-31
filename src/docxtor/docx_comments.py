@@ -59,7 +59,6 @@ def _existing_comments_part(doc: DocxDocumentType) -> Any | None:
         return None
 
 
-
 def _package_part_name(partname: Any) -> str:
     text = str(partname)
     return text[1:] if text.startswith("/") else text
@@ -312,4 +311,3 @@ def _collect_comments(
             )
         )
     return comments
-

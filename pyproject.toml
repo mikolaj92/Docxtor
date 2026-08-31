@@ -1,6 +1,6 @@
 [project]
 name = "docxtor"
-version = "0.6.0"
+version = "0.7.0"
 description = "Extract editable text segments from documents and inject changed text back in memory."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -42,6 +42,7 @@ files = [
   "src/docxtor/docx_review_inventory.py",
   "src/docxtor/docx_review_models.py",
   "src/docxtor/docx_review_transaction.py",
+  "src/docxtor/docx_facts.py",
 ]
 check_untyped_defs = true
 no_implicit_optional = true

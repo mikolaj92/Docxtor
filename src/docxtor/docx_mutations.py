@@ -82,8 +82,7 @@ def apply_surface_replacements(
             raise SurfaceMutationError(f"unknown surface: {replacement.surface_id}")
         if surface.capability is not SurfaceCapability.VALUE_REPLACE:
             raise SurfaceMutationError(
-                f"surface is not value-replaceable: {replacement.surface_id} "
-                f"({surface.capability})"
+                f"surface is not value-replaceable: {replacement.surface_id} ({surface.capability})"
             )
         if replacement.expected_value_sha256 != surface.value_sha256:
             raise SurfaceMutationError(
@@ -159,11 +158,7 @@ def _rewrite_xml_part(
     for surface, replacement in mutations:
         if surface.kind is SurfaceKind.RELATIONSHIP:
             element = next(
-                (
-                    candidate
-                    for candidate in root
-                    if candidate.get("Id") == surface.relationship_id
-                ),
+                (candidate for candidate in root if candidate.get("Id") == surface.relationship_id),
                 None,
             )
             if element is None:

@@ -93,9 +93,7 @@ def test_rejects_preserve_only_internal_relationship(tmp_path: Path) -> None:
     _write_docx(path)
     document = DocxDocument.open(path)
     surface = next(
-        item
-        for item in document.inventory().surfaces
-        if item.relationship_id and not item.external
+        item for item in document.inventory().surfaces if item.relationship_id and not item.external
     )
 
     with pytest.raises(SurfaceMutationError, match="not value-replaceable"):
@@ -108,3 +106,57 @@ def test_rejects_preserve_only_internal_relationship(tmp_path: Path) -> None:
                 )
             ]
         )
+
+
+@pytest.mark.parametrize("replacement", ["", "   "])
+def test_mutates_xml_text_to_empty_or_whitespace_and_confirms_round_trip(
+    tmp_path: Path, replacement: str
+) -> None:
+    path = tmp_path / "empty-text.docx"
+    _write_docx(path)
+    document = DocxDocument.open(path)
+
+    result = document.apply_surface_replacements(
+        [_replacement(document, "Visible person", replacement)]
+    )
+
+    assert result.unresolved == ()
+    assert result.dispositions[0].status is SurfaceDispositionStatus.REWRITTEN
+    rewritten = next(
+        surface
+        for surface in result.inventory.surfaces
+        if surface.surface_id == result.dispositions[0].surface_id
+    )
+    assert rewritten.value == replacement
+
+
+@pytest.mark.parametrize("replacement", ["", "   "])
+def test_mutates_xml_attribute_to_empty_or_whitespace_and_confirms_round_trip(
+    tmp_path: Path, replacement: str
+) -> None:
+    path = tmp_path / "empty-attribute.docx"
+    _write_docx(path)
+    document = DocxDocument.open(path)
+
+    result = document.apply_surface_replacements(
+        [
+            _replacement(
+                document,
+                next(
+                    surface.value
+                    for surface in document.inventory().surfaces
+                    if surface.kind.value == "xml_attribute"
+                ),
+                replacement,
+            )
+        ]
+    )
+
+    assert result.unresolved == ()
+    assert result.dispositions[0].status is SurfaceDispositionStatus.REWRITTEN
+    rewritten = next(
+        surface
+        for surface in result.inventory.surfaces
+        if surface.surface_id == result.dispositions[0].surface_id
+    )
+    assert rewritten.value == replacement

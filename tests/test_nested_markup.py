@@ -95,14 +95,10 @@ def _write_parts(
     office_rel = (
         "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
     )
-    main_ct = (
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
-    )
+    main_ct = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
     rels_ct = "application/vnd.openxmlformats-package.relationships+xml"
     with ZipFile(path, mode="w", compression=ZIP_DEFLATED) as archive:
-        overrides = (
-            f'<Override PartName="/word/document.xml" ContentType="{main_ct}"/>'
-        )
+        overrides = f'<Override PartName="/word/document.xml" ContentType="{main_ct}"/>'
         archive.writestr(
             "[Content_Types].xml",
             (
@@ -370,8 +366,7 @@ def test_nested_markup_across_indexed_story_parts(tmp_path: Path) -> None:
     roundtrip = DocxDocument.open(out)
     assert "BODY" in roundtrip.texts[0]
     assert any(
-        span.text == "CELL" and span.hyperlink_anchor == "_TocCell"
-        for span in roundtrip.spans
+        span.text == "CELL" and span.hyperlink_anchor == "_TocCell" for span in roundtrip.spans
     )
     assert any(span.text == "HDR" and span.role == "deletion" for span in roundtrip.spans)
     assert any(span.text == "FTR" and span.role == "insertion" for span in roundtrip.spans)

@@ -425,6 +425,7 @@ def test_strict_rejects_invalid_replacement_offsets(tmp_path: Path) -> None:
 # New tests for rich editing (SegmentReplacement + offsets)
 # ------------------------------------------------------------------
 
+
 def test_partial_replacement_inside_run(tmp_path: Path) -> None:
     path = tmp_path / "t.docx"
     d = PyDocxDocument()
@@ -514,6 +515,8 @@ def test_strict_unknown_target_raises(tmp_path: Path) -> None:
         doc.apply_replacements(
             [SegmentReplacement(container_id="body:p:999", text="no")], strict=True
         )
+
+
 # ------------------------------------------------------------------
 # Tests for canonical mechanical surface (InlineSegment + pure functions)
 # These are the primitives reviewkit (and others) must delegate to.
@@ -735,9 +738,7 @@ def test_segments_include_nested_inline_sdt_text(tmp_path: Path) -> None:
 
     doc = DocxDocument.open(path)
 
-    assert doc.segments[0].text == (
-        "Celem przetwarzania jest realizacja Umowy Podstawowej"
-    )
+    assert doc.segments[0].text == ("Celem przetwarzania jest realizacja Umowy Podstawowej")
 
 
 def _write_minimal_docx(path: Path, document_xml: str) -> None:
@@ -746,13 +747,9 @@ def _write_minimal_docx(path: Path, document_xml: str) -> None:
     ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
     rel_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
     office_rel = (
-        "http://schemas.openxmlformats.org/officeDocument/2006/"
-        "relationships/officeDocument"
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
     )
-    main_ct = (
-        "application/vnd.openxmlformats-officedocument.wordprocessingml."
-        "document.main+xml"
-    )
+    main_ct = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
     rels_ct = "application/vnd.openxmlformats-package.relationships+xml"
     with ZipFile(path, mode="w", compression=ZIP_DEFLATED) as archive:
         archive.writestr(
@@ -846,8 +843,7 @@ def test_ignores_empty_decorative_textbox(tmp_path: Path) -> None:
     doc = DocxDocument.open(path)
     assert doc.texts == ["Widoczny akapit."]
     assert all(
-        s.container_id is None or not s.container_id.startswith("txbx:")
-        for s in doc.segments
+        s.container_id is None or not s.container_id.startswith("txbx:") for s in doc.segments
     )
 
 
@@ -1011,4 +1007,3 @@ def test_unmerged_cells_keep_distinct_column_ids(tmp_path: Path) -> None:
     doc = DocxDocument.open(path)
     table_ids = [s.container_id for s in doc.segments if s.container_id.startswith("table:")]
     assert table_ids == ["table:0:r:0:c:0:p:0", "table:0:r:0:c:1:p:0"]
-
