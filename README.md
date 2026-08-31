@@ -34,8 +34,9 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git
 ```
 
-Pin `v0.5.2` or later for complete package inventory, neutral surface
-capabilities, and verified surface mutations. Earlier `v0.4.x` tags include
+Pin `v0.6.0` or later for neutral Word review markup, typed operation receipts,
+and atomic DOCX publication. `v0.5.2` introduced complete package inventory,
+neutral surface capabilities, and verified surface mutations. Earlier `v0.4.x` tags include
 stable text/revision/comment addressing but not the complete inventory contract.
 Tag `v0.4.1` still ships distribution version `0.4.0`; `v0.4.4` was the first
 correctly versioned stable-addressing pin.
@@ -269,3 +270,40 @@ doc.apply_replacements(
     strict=True,
 )
 ```
+
+
+### Neutral Word review markup
+
+Docxtor owns the physical OOXML mechanics for comments and tracked changes. It
+stays domain-blind: the caller supplies exact locators, ranges, author identity,
+and the accept/reject decision.
+
+```python
+from docxtor import (
+    CommentAuthor,
+    CommentRange,
+    DocxDocument,
+    add_comment,
+    accept_all_revisions_bytes,
+)
+
+source = DocxDocument.open("input.docx").to_bytes()
+commented = add_comment(
+    source,
+    CommentRange("body:p:0", 0, 5, expected_text="Hello"),
+    "Check this range",
+    CommentAuthor("Reviewer", "RV", "2026-01-01T00:00:00Z"),
+)
+accepted = accept_all_revisions_bytes(commented.data, drop_comments=False)
+```
+
+`inventory_review_markup()` and `inventory_revisions_bytes()` distinguish an
+empty document from incomplete coverage. Unsupported structural revisions fail
+closed. `apply_review_batch()` returns no intermediate bytes if any command
+fails.
+
+Use `DocxDocument.publish(path)` for file output. It serializes in memory,
+preserves semantically unchanged source XML, normalizes ZIP timestamps, validates
+the complete package, runs optional validators, and performs one atomic replace.
+The returned `PublishReceipt` identifies the exact published bytes. A failure
+before replacement leaves an existing destination byte-for-byte unchanged.

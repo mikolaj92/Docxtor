@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
@@ -48,6 +48,10 @@ from .docx_mutations import (
     SurfaceReplacement,
     apply_surface_replacements,
 )
+from .docx_publish import PublishReceipt, publish_docx
+from .docx_review_inventory import inventory_review_markup
+from .docx_review_models import ReviewMarkupInventory
+from .docx_review_transaction import ReviewCommand, apply_review_batch
 from .docx_stories import _ParaRef, index_stories
 from .docx_units import _paragraph_spans, _paragraph_visible_text, _replace_plain_range
 
@@ -114,7 +118,6 @@ class DocxDocument:
         instance._source_bytes = data
         return instance
 
-
     @classmethod
     def _from_pydocx(
         cls, doc: DocxDocumentType, *, filename: str = "document.docx"
@@ -128,7 +131,6 @@ class DocxDocument:
         instance._thread_parts = stories.thread_parts
         instance._note_parts = stories.note_parts
         return instance
-
 
     @property
     def segments(self) -> tuple[TextSegment, ...]:
@@ -397,9 +399,28 @@ class DocxDocument:
     # ------------------------------------------------------------------
     # Save / bytes
     # ------------------------------------------------------------------
+    def publish(
+        self,
+        path: str | Path,
+        *,
+        validators: Iterable[Any] = (),
+    ) -> PublishReceipt:
+        """Publish through preservation, validation, and one atomic replace."""
+        return publish_docx(
+            self.to_bytes(), path, source=self._source_bytes, validators=validators
+        )
 
     def save_docx(self, path: str | Path) -> None:
-        Path(path).write_bytes(self.to_bytes())
+        """Publish the document safely. Prefer :meth:`publish` when a receipt is needed."""
+        self.publish(path)
+
+    def review_inventory(self) -> ReviewMarkupInventory:
+        return inventory_review_markup(self.to_bytes())
+
+    def apply_review_batch(self, commands: Sequence[ReviewCommand]) -> None:
+        receipt = apply_review_batch(self.to_bytes(), commands)
+        replacement = self.open_bytes(receipt.data, filename=self.filename)
+        self.__dict__.update(replacement.__dict__)
 
     def to_bytes(self) -> bytes:
         _ensure_thread_parts(self._doc.part.package, self._thread_parts)
@@ -527,4 +548,3 @@ class DocxDocument:
 
         _replace_plain_range(para._p, s, e, replacement)
         self._refresh_after_edit(index)
-
