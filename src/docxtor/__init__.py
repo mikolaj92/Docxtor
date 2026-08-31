@@ -49,6 +49,15 @@ from .docx_mutations import (
     SurfaceReplacement,
     apply_surface_replacements,
 )
+from .docx_package import (
+    PackageEntry,
+    PackageError,
+    normalize_docx_timestamps,
+    parse_package_xml,
+    read_package_entries,
+    restore_semantically_unchanged_xml_parts,
+    write_package_atomically,
+)
 from .loader import document_to_bytes, load_document
 from .pdf import PdfDocument, PdfExtractionMode
 from .text import PlainTextDocument
@@ -69,6 +78,8 @@ __all__ = [
     "DocxDocument",
     "DocxInventory",
     "InventoryCoverage",
+    "PackageEntry",
+    "PackageError",
     "PackagePart",
     "SurfaceCapability",
     "SurfaceDisposition",
@@ -102,4 +113,9 @@ __all__ = [
     "detect_document_type",
     "document_to_bytes",
     "load_document",
+    "normalize_docx_timestamps",
+    "parse_package_xml",
+    "read_package_entries",
+    "restore_semantically_unchanged_xml_parts",
+    "write_package_atomically",
 ]
