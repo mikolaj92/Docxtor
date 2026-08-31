@@ -43,6 +43,8 @@ def inventory_review_markup(data: bytes) -> ReviewMarkupInventory:
         )
     try:
         comments = tuple(index_stories(PyDocxDocument(BytesIO(data))).comments)
+        if not comments:
+            comments = _standalone_comments(entries)
     except (KeyError, ValueError, TypeError, etree.XMLSyntaxError) as exc:
         diagnostics.append(ReviewDiagnostic("comments_unreadable", str(exc), "word/comments.xml"))
     _validate_comment_markers(entries, comments, diagnostics)
@@ -53,6 +55,36 @@ def inventory_review_markup(data: bytes) -> ReviewMarkupInventory:
         coverage=ReviewCoverage.INCOMPLETE if diagnostics else ReviewCoverage.COMPLETE,
         diagnostics=tuple(diagnostics),
     )
+
+
+def _standalone_comments(entries: tuple[Any, ...]) -> tuple[AddressableComment, ...]:
+    entry = next((item for item in entries if item.name == "word/comments.xml"), None)
+    if entry is None:
+        return ()
+    root = parse_package_xml(entry.data, part_name=entry.name)
+    result: list[AddressableComment] = []
+    for comment in root:
+        if _local(comment.tag) != "comment":
+            continue
+        comment_id = _attr(comment, "id")
+        if comment_id is None:
+            continue
+        text = " ".join(
+            (node.text or "").strip()
+            for node in comment.iter()
+            if _local(node.tag) in {"t", "delText"} and (node.text or "").strip()
+        )
+        result.append(
+            AddressableComment(
+                comment_id=comment_id,
+                container_id=f"comment:{comment_id}:p:0",
+                text=text,
+                author=_attr(comment, "author") or "",
+                initials=_attr(comment, "initials"),
+                date=_attr(comment, "date"),
+            )
+        )
+    return tuple(result)
 
 
 def _comment_revision_associations(
