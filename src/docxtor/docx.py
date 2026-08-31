@@ -411,7 +411,8 @@ class DocxDocument:
     def facts(self) -> Any:
         from .docx_facts import docx_facts
 
-        return docx_facts(self.to_bytes())
+        payload = self._source_bytes if self._source_bytes is not None else self.to_bytes()
+        return docx_facts(payload)
 
     def apply_review_batch(self, commands: Sequence[ReviewCommand]) -> None:
         receipt = apply_review_batch(self.to_bytes(), commands)
