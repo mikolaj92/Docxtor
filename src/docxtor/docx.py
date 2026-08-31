@@ -790,6 +790,7 @@ def _comment_anchors(
     open_ids: dict[str, list[str]] = {}
     started_at: dict[str, str] = {}
     finished: dict[str, tuple[str, str]] = {}
+    reference_at: dict[str, str] = {}
     for locator, paragraph in paragraphs_by_container.items():
         if locator.startswith("comment:"):
             continue
@@ -811,7 +812,11 @@ def _comment_anchors(
                     "".join(open_ids.pop(comment_id)),
                 )
                 started_at.pop(comment_id, None)
-            elif open_ids and node.tag in _TEXT_NODE_TAGS and node.text:
+            elif local == "commentReference":
+                comment_id = _w_get(node, "id")
+                if comment_id is not None:
+                    reference_at.setdefault(comment_id, locator)
+            elif open_ids and node.tag == W_T and node.text:
                 for buffer in open_ids.values():
                     buffer.append(node.text)
             elif open_ids and node.tag == qn("w:tab"):
@@ -822,6 +827,10 @@ def _comment_anchors(
                     buffer.append("\n")
     for comment_id, buffer in open_ids.items():
         finished[comment_id] = (started_at.get(comment_id, ""), "".join(buffer))
+    for comment_id, locator in reference_at.items():
+        current = finished.get(comment_id)
+        if current is None or not current[0]:
+            finished[comment_id] = (locator, current[1] if current is not None else "")
     return finished
 
 
