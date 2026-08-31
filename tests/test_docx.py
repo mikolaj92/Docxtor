@@ -207,6 +207,30 @@ def test_interleaved_table_segments_follow_authored_block_order(tmp_path: Path) 
     ]
 
 
+def test_nested_block_content_control_paragraph_is_indexed_once(tmp_path: Path) -> None:
+    path = tmp_path / "nested-sdt.docx"
+    source = PyDocxDocument()
+    paragraph = source.add_paragraph("Nested")
+    body = source.element.body
+    body.remove(paragraph._p)
+    inner = OxmlElement("w:sdt")
+    inner_content = OxmlElement("w:sdtContent")
+    inner_content.append(paragraph._p)
+    inner.append(inner_content)
+    outer = OxmlElement("w:sdt")
+    outer_content = OxmlElement("w:sdtContent")
+    outer_content.append(inner)
+    outer.append(outer_content)
+    body.insert(0, outer)
+    source.save(path)
+
+    document = DocxDocument.open(path)
+
+    assert [(segment.container_id, segment.text) for segment in document.segments] == [
+        ("body:p:0", "Nested")
+    ]
+
+
 def test_applies_replacements_without_removing_run_formatting(tmp_path: Path) -> None:
     input_path = tmp_path / "input.docx"
     output_path = tmp_path / "output.docx"

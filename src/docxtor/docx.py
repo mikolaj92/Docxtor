@@ -1230,11 +1230,12 @@ class DocxDocument:
                 add_paragraphs([Paragraph(block, doc._body)], "body")
                 continue
             if block.tag == W_SDT:
-                paragraphs: list[Paragraph] = []
-                for content in block.iter(W_SDT_CONTENT):
-                    paragraphs.extend(
-                        _paragraphs_from_container(content, doc._body, skip_text_boxes=True)
-                    )
+                content = block.find(W_SDT_CONTENT)
+                paragraphs = (
+                    []
+                    if content is None
+                    else _paragraphs_from_container(content, doc._body, skip_text_boxes=True)
+                )
                 add_paragraphs(paragraphs, "body")
                 continue
             if block.tag != W_TBL:
