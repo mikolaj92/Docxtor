@@ -1,4 +1,4 @@
-__version__ = "0.5.2"
+__version__ = "0.6.0"
 
 from .common import (
     DOCX_MIME,
@@ -32,6 +32,14 @@ from .docx import (
     paragraph_to_inline_segments,
     rebuild_paragraph_from_inline,
 )
+from .docx_comment_mutations import (
+    CommentAuthor,
+    CommentMutationError,
+    CommentMutationResult,
+    CommentRange,
+    add_comment,
+    remove_comments,
+)
 from .docx_inventory import (
     DocumentSurface,
     DocxInventory,
@@ -60,12 +68,92 @@ from .docx_package import (
     restore_semantically_unchanged_xml_parts,
     write_package_atomically,
 )
+from .docx_publish import PublishError, PublishReceipt, publish_docx
+from .docx_review_inventory import inventory_review_markup
+from .docx_review_models import (
+    OperationReceipt,
+    OperationStatus,
+    ReviewBatchReceipt,
+    ReviewCoverage,
+    ReviewDiagnostic,
+    ReviewMarkupInventory,
+)
+from .docx_review_transaction import (
+    ReviewCommand,
+    ReviewTransactionError,
+    apply_review_batch,
+)
+from .docx_revision_mutations import (
+    RevisionAuthor,
+    RevisionMutationError,
+    RevisionMutationResult,
+    RevisionPosition,
+    RevisionRange,
+    delete_revision,
+    insert_revision,
+    mark_paragraph_revision,
+    replace_revision,
+)
+from .docx_revisions import (
+    AcceptRevisionsError,
+    RejectRevisionsError,
+    Revision,
+    RevisionInventory,
+    RevisionInventoryCoverage,
+    RevisionKind,
+    RevisionOperation,
+    RevisionOperationError,
+    RevisionOperationReceipt,
+    accept_all_revisions_bytes,
+    inventory_revisions_bytes,
+    reject_all_revisions_bytes,
+)
 from .loader import document_to_bytes, load_document
 from .pdf import PdfDocument, PdfExtractionMode
 from .text import PlainTextDocument
 
 __all__ = [
     "__version__",
+    "RevisionAuthor",
+    "RevisionMutationError",
+    "RevisionMutationResult",
+    "RevisionPosition",
+    "RevisionRange",
+    "delete_revision",
+    "insert_revision",
+    "mark_paragraph_revision",
+    "replace_revision",
+    "CommentAuthor",
+    "CommentMutationError",
+    "CommentMutationResult",
+    "CommentRange",
+    "add_comment",
+    "remove_comments",
+    "PublishError",
+    "PublishReceipt",
+    "publish_docx",
+    "AcceptRevisionsError",
+    "RejectRevisionsError",
+    "Revision",
+    "RevisionInventory",
+    "RevisionInventoryCoverage",
+    "RevisionKind",
+    "RevisionOperation",
+    "RevisionOperationError",
+    "RevisionOperationReceipt",
+    "accept_all_revisions_bytes",
+    "inventory_revisions_bytes",
+    "reject_all_revisions_bytes",
+    "inventory_review_markup",
+    "OperationReceipt",
+    "OperationStatus",
+    "ReviewBatchReceipt",
+    "ReviewCoverage",
+    "ReviewDiagnostic",
+    "ReviewMarkupInventory",
+    "ReviewCommand",
+    "ReviewTransactionError",
+    "apply_review_batch",
     "DOCX_MIME",
     "MD_MIME",
     "PDF_MIME",
