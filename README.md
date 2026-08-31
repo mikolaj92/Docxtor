@@ -34,7 +34,7 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git
 ```
 
-Pin `v0.5.1` or later for complete package inventory, neutral surface
+Pin `v0.5.2` or later for complete package inventory, neutral surface
 capabilities, and verified surface mutations. Earlier `v0.4.x` tags include
 stable text/revision/comment addressing but not the complete inventory contract.
 Tag `v0.4.1` still ships distribution version `0.4.0`; `v0.4.4` was the first
