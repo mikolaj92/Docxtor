@@ -51,12 +51,16 @@ class PackagePart:
     error: str | None = None
 
 
+SURFACE_LOCATOR_VERSION = "docxtor-surface-v1"
+
+
 @dataclass(frozen=True)
 class DocumentSurface:
-    """One neutral value carried by a DOCX package.
+    """One neutral, fully qualified value carried by a DOCX package.
 
-    Docxtor reports physical location and mutation capability only. Consumers
-    decide whether a value is sensitive, legally relevant, or review content.
+    Qualified names and ancestors let consumers apply their own policy without
+    opening or reparsing XML. Docxtor reports physical facts and capabilities
+    only; it never classifies a value as PII, legal content, or review policy.
     """
 
     surface_id: str
@@ -72,6 +76,29 @@ class DocumentSurface:
     external: bool = False
     xml_path: str | None = None
     xml_name: str | None = None
+    element_qname: str | None = None
+    attribute_qname: str | None = None
+    ancestor_qnames: tuple[str, ...] = ()
+    role: str | None = None
+    locator_version: str = SURFACE_LOCATOR_VERSION
+
+
+@dataclass(frozen=True)
+class PackageRelationship:
+    source_part: str
+    relationship_part: str
+    relationship_id: str
+    relationship_type: str
+    target: str
+    target_part: str | None
+    external: bool
+
+
+@dataclass(frozen=True)
+class PackageGraph:
+    relationships: tuple[PackageRelationship, ...]
+    reachable_parts: tuple[str, ...]
+    orphan_parts: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -81,6 +108,7 @@ class DocxInventory:
     coverage: InventoryCoverage
     unknown_parts: tuple[str, ...]
     unreadable_parts: tuple[str, ...]
+    graph: PackageGraph = PackageGraph((), (), ())
 
 
 _CONTENT_TYPES_PART = "[Content_Types].xml"
@@ -162,12 +190,14 @@ def inventory_docx(data: bytes) -> DocxInventory:
         if not unknown_parts and not unreadable_parts
         else InventoryCoverage.INCOMPLETE
     )
+    graph = _package_graph(tuple(part.name for part in parts), tuple(surfaces))
     return DocxInventory(
         parts=tuple(parts),
         surfaces=tuple(sorted(surfaces, key=lambda surface: surface.surface_id)),
         coverage=coverage,
         unknown_parts=tuple(sorted(set(unknown_parts))),
         unreadable_parts=tuple(sorted(set(unreadable_parts))),
+        graph=graph,
     )
 
 
@@ -225,6 +255,9 @@ def _xml_surfaces(part_name: str, root: etree._Element) -> list[DocumentSurface]
                     capability=SurfaceCapability.VALUE_REPLACE,
                     xml_path=path,
                     xml_name=local,
+                    element_qname=str(element.tag),
+                    ancestor_qnames=_ancestor_qnames(element),
+                    role=_surface_role(part_name, element, None),
                 )
             )
         for raw_name, value in sorted(element.attrib.items()):
@@ -241,6 +274,10 @@ def _xml_surfaces(part_name: str, root: etree._Element) -> list[DocumentSurface]
                     capability=SurfaceCapability.VALUE_REPLACE,
                     xml_path=path,
                     xml_name=attr_name,
+                    element_qname=str(element.tag),
+                    attribute_qname=str(raw_name),
+                    ancestor_qnames=_ancestor_qnames(element),
+                    role=_surface_role(part_name, element, raw_name),
                 )
             )
     return surfaces
@@ -272,9 +309,122 @@ def _relationship_surfaces(part_name: str, root: etree._Element) -> list[Documen
                 external=external,
                 xml_path=f"/*[local-name()='Relationships']/*[@Id='{rel_id}']",
                 xml_name="Target",
+                element_qname=str(element.tag),
+                attribute_qname="Target",
+                ancestor_qnames=_ancestor_qnames(element),
+                role="external_relationship" if external else "internal_relationship",
             )
         )
     return surfaces
+
+
+def _ancestor_qnames(element: etree._Element) -> tuple[str, ...]:
+    ancestors: list[str] = []
+    parent = element.getparent()
+    while parent is not None:
+        ancestors.append(str(parent.tag))
+        parent = parent.getparent()
+    return tuple(reversed(ancestors))
+
+
+def _surface_role(part_name: str, element: etree._Element, attribute: object | None) -> str:
+    local = _local_name(element.tag).lower()
+    attr = _local_name(attribute).lower() if attribute is not None else "text"
+    normalized = part_name.lower()
+    if normalized.endswith(".rels"):
+        return "relationship_target"
+    if "customxml/" in normalized:
+        return (
+            "custom_xml_binding" if local in {"databinding", "schemaRef".lower()} else "custom_xml"
+        )
+    if "numbering" in normalized:
+        return f"numbering_{local}_{attr}"
+    if "drawings/" in normalized or normalized.endswith((".vml", ".svg")):
+        return f"drawing_{local}_{attr}"
+    if local in {"fldsimple", "instrtext"}:
+        return "field_instruction"
+    if local == "hyperlink":
+        return "hyperlink"
+    if local in {"sdt", "sdtpr", "databinding", "tag", "alias"} or any(
+        _local_name(parent).lower() in {"sdt", "sdtpr"} for parent in element.iterancestors()
+    ):
+        return f"content_control_{local}_{attr}"
+    return f"xml_{local}_{attr}"
+
+
+def _relationship_source_part(relationship_part: str) -> str:
+    if relationship_part == "_rels/.rels":
+        return ""
+    path = PurePosixPath(relationship_part)
+    parent = path.parent.parent
+    source_name = path.name.removesuffix(".rels")
+    return str(parent / source_name) if str(parent) != "." else source_name
+
+
+def _resolve_target(source_part: str, target: str) -> str:
+    if not source_part:
+        return str(PurePosixPath(target))
+    parent = PurePosixPath(source_part).parent
+    stack: list[str] = []
+    for item in (parent / target).parts:
+        if item in {"", "."}:
+            continue
+        if item == "..":
+            if stack:
+                stack.pop()
+        else:
+            stack.append(item)
+    return "/".join(stack)
+
+
+def _package_graph(
+    part_names: tuple[str, ...], surfaces: tuple[DocumentSurface, ...]
+) -> PackageGraph:
+    names = set(part_names)
+    relationships: list[PackageRelationship] = []
+    for surface in surfaces:
+        if surface.kind is not SurfaceKind.RELATIONSHIP:
+            continue
+        source = _relationship_source_part(surface.part_name)
+        target_part = None if surface.external else _resolve_target(source, surface.value)
+        relationships.append(
+            PackageRelationship(
+                source_part=source,
+                relationship_part=surface.part_name,
+                relationship_id=surface.relationship_id or "",
+                relationship_type=surface.relationship_type or "",
+                target=surface.value,
+                target_part=target_part,
+                external=surface.external,
+            )
+        )
+    reachable = {"[Content_Types].xml", "_rels/.rels"} & names
+    queue = [""]
+    visited_sources: set[str] = set()
+    while queue:
+        source = queue.pop()
+        if source in visited_sources:
+            continue
+        visited_sources.add(source)
+        for relationship in relationships:
+            if relationship.source_part != source or relationship.external:
+                continue
+            target = relationship.target_part
+            if target and target in names and target not in reachable:
+                reachable.add(target)
+                queue.append(target)
+                rel_part = str(
+                    PurePosixPath(target).parent / "_rels" / (PurePosixPath(target).name + ".rels")
+                )
+                if rel_part in names:
+                    reachable.add(rel_part)
+    return PackageGraph(
+        relationships=tuple(
+            sorted(relationships, key=lambda item: (item.source_part, item.relationship_id))
+        ),
+        reachable_parts=tuple(sorted(reachable)),
+        orphan_parts=tuple(sorted(names - reachable)),
+    )
 
 
 def _surface(*, value: str, **kwargs: object) -> DocumentSurface:
