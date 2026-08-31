@@ -1,4 +1,4 @@
-__version__ = "0.8.11"
+__version__ = "0.8.12"
 
 from .common import (
     DOCX_MIME,
@@ -271,6 +271,15 @@ __all__ = [
     "apply_package_transaction",
     "PackageGraph",
     "PackageRelationship",
+    "BodyAppendix",
+    "DocumentMark",
+    "PublicationMarkError",
+    "append_body_appendix",
+    "has_body_appendix",
+    "has_document_mark",
+    "remove_body_appendix",
+    "stamp_document_mark",
+    "write_publication_bytes",
     "SURFACE_LOCATOR_VERSION",
 ]
 
@@ -284,4 +293,15 @@ from .docx_package_transaction import (
     PackageMutationKind,
     PackageTransactionReceipt,
     apply_package_transaction,
+)
+from .docx_publication_marks import (
+    BodyAppendix,
+    DocumentMark,
+    PublicationMarkError,
+    append_body_appendix,
+    has_body_appendix,
+    has_document_mark,
+    remove_body_appendix,
+    stamp_document_mark,
+    write_publication_bytes,
 )
