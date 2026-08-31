@@ -5,9 +5,11 @@ import tempfile
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+from zipfile import BadZipFile
 
 from docx import Document
 from docx.document import Document as PythonDocxDocument
+from docx.opc.exceptions import PackageNotFoundError
 
 from .docx_package import normalize_docx_timestamps
 
@@ -129,7 +131,7 @@ def _source_bytes(source: str | Path | bytes) -> bytes:
 def _open(source: str | Path | bytes) -> PythonDocxDocument:
     try:
         return Document(BytesIO(_source_bytes(source)))
-    except (OSError, ValueError, KeyError) as exc:
+    except (OSError, ValueError, KeyError, BadZipFile, PackageNotFoundError) as exc:
         raise PublicationMarkError(f"DOCX publication package is unreadable: {exc}") from exc
 
 
