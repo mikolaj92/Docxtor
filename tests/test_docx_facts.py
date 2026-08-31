@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 from docxtor.docx_facts import (
     ChangeKind,
@@ -176,3 +179,52 @@ def test_feature_facts_bind_hidden_text_to_paragraph_and_resolve_link(tmp_path) 
     paragraph_fact = next(item for item in snapshot.paragraphs if item.container_id == "body:p:0")
     assert paragraph_fact.xml_path
     assert paragraph_fact.part_name == "word/document.xml"
+
+
+def test_all_story_and_safety_facts_are_consumer_ready(tmp_path) -> None:
+    document = Document()
+    paragraph = document.add_paragraph("Visible ")
+    hidden = paragraph.add_run("not-hidden")
+    hidden.font.hidden = False
+    toc = document.add_paragraph("Entry\t2")
+    style = OxmlElement("w:pStyle")
+    style.set(qn("w:val"), "TOC1")
+    toc._p.get_or_add_pPr().insert(0, style)
+    stream = BytesIO()
+    document.save(stream)
+    data = stream.getvalue()
+    notes = (
+        b'<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:footnote w:id="-1" w:type="separator"><w:p/></w:footnote>'
+        b'<w:footnote w:id="2"><w:p><w:r><w:t>note</w:t></w:r></w:p></w:footnote>'
+        b"</w:footnotes>"
+    )
+    changed = _rewrite(tmp_path, data, {"word/footnotes.xml": notes})
+
+    snapshot = docx_facts(changed)
+
+    assert not snapshot.hidden
+    assert any(item.style_id == "TOC1" for item in snapshot.paragraphs)
+    assert any(
+        item.container_id == "footnote:2:p:0" and item.text == "note"
+        for item in snapshot.paragraphs
+    )
+
+
+def test_unreadable_properties_are_typed_without_consumer_xml_parse(tmp_path) -> None:
+    data = _document()
+    changed_stream = BytesIO()
+    with (
+        ZipFile(BytesIO(data)) as source,
+        ZipFile(changed_stream, "w", compression=ZIP_DEFLATED) as target,
+    ):
+        for info in source.infolist():
+            target.writestr(
+                info,
+                b"<not-xml" if info.filename == "docProps/app.xml" else source.read(info),
+            )
+
+    snapshot = docx_facts(changed_stream.getvalue())
+
+    assert snapshot.coverage is FactsCoverage.INCOMPLETE
+    assert snapshot.unreadable_parts[0].part_name == "docProps/app.xml"
