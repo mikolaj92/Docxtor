@@ -38,6 +38,10 @@ from .docx_models import (
     AddressableSpan,
     InlineSegment,
     InlineSegmentKind,
+    ParagraphLocator,
+    ParagraphResolution,
+    RunLocator,
+    RunResolution,
     SegmentReplacement,
     SpanRole,
     TextSegment,
@@ -61,6 +65,10 @@ __all__ = [
     "DocxDocument",
     "InlineSegment",
     "InlineSegmentKind",
+    "ParagraphLocator",
+    "ParagraphResolution",
+    "RunLocator",
+    "RunResolution",
     "SegmentReplacement",
     "SpanRole",
     "TextSegment",
@@ -176,6 +184,49 @@ class DocxDocument:
         if not hasattr(self, "_paragraphs_by_index"):
             return None
         return self._paragraphs_by_index.get(index)
+
+    @property
+    def paragraph_resolutions(self) -> tuple[ParagraphResolution, ...]:
+        """Typed paragraph/run projections in indexed document order."""
+        resolutions: list[ParagraphResolution] = []
+        for segment in self._segments:
+            if segment.container_id is None:
+                continue
+            resolution = self.resolve_paragraph_locator(ParagraphLocator(segment.container_id))
+            if resolution is not None:
+                resolutions.append(resolution)
+        return tuple(resolutions)
+
+    def resolve_paragraph_locator(
+        self, locator: ParagraphLocator
+    ) -> ParagraphResolution | None:
+        """Resolve a typed paragraph locator without exposing python-docx."""
+        paragraph = self.resolve_paragraph(locator.container_id)
+        if paragraph is None:
+            return None
+        segment = next(
+            (item for item in self._segments if item.container_id == locator.container_id),
+            None,
+        )
+        if segment is None or segment.paragraph_index is None:
+            return None
+        runs = tuple(
+            RunResolution(identity=RunLocator(locator, index), value=run.text)
+            for index, run in enumerate(paragraph.runs)
+        )
+        return ParagraphResolution(
+            identity=locator,
+            value=segment.text,
+            paragraph_index=segment.paragraph_index,
+            runs=runs,
+        )
+
+    def resolve_run_locator(self, locator: RunLocator) -> RunResolution | None:
+        """Resolve a typed run locator to its identity and current text value."""
+        paragraph = self.resolve_paragraph_locator(locator.paragraph)
+        if paragraph is None or not 0 <= locator.run_index < len(paragraph.runs):
+            return None
+        return paragraph.runs[locator.run_index]
 
     def get_all_paragraphs(self) -> list[Paragraph]:
         """All paragraphs in document order (body, tables, headers, footers, boxes).

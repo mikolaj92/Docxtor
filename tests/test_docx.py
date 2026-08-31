@@ -13,6 +13,10 @@ from docx.text.paragraph import Paragraph
 from docxtor import (
     DocxDocument,
     InlineSegment,
+    ParagraphLocator,
+    ParagraphResolution,
+    RunLocator,
+    RunResolution,
     SegmentReplacement,
     _insert_visible,
     _replace_visible_range,
@@ -123,6 +127,43 @@ def test_explicit_header_and_footer_keep_editable_container_ids(tmp_path: Path) 
 
     reopened = DocxDocument.open(output_path)
     assert reopened.texts == ["Body", "New header", "New footer"]
+
+
+def test_typed_paragraph_and_run_locators_cover_document_stories(tmp_path: Path) -> None:
+    path = tmp_path / "typed-locators.docx"
+    source = PyDocxDocument()
+    body = source.add_paragraph()
+    body.add_run("Body ")
+    body.add_run("value")
+    source.add_table(rows=1, cols=1).cell(0, 0).paragraphs[0].add_run("Cell value")
+    source.sections[0].header.paragraphs[0].add_run("Header value")
+    source.sections[0].footer.paragraphs[0].add_run("Footer value")
+    source.save(path)
+
+    document = DocxDocument.open(path)
+    resolutions = document.paragraph_resolutions
+
+    assert all(isinstance(item, ParagraphResolution) for item in resolutions)
+    assert [(item.identity.container_id, item.value) for item in resolutions] == [
+        ("body:p:0", "Body value"),
+        ("table:0:r:0:c:0:p:0", "Cell value"),
+        ("header:0:p:0", "Header value"),
+        ("footer:0:p:0", "Footer value"),
+    ]
+    assert [item.paragraph_index for item in resolutions] == [0, 1, 2, 3]
+
+    body_locator = ParagraphLocator("body:p:0")
+    body_resolution = document.resolve_paragraph_locator(body_locator)
+    assert body_resolution == resolutions[0]
+    assert body_resolution.runs == (
+        RunResolution(RunLocator(body_locator, 0), "Body "),
+        RunResolution(RunLocator(body_locator, 1), "value"),
+    )
+    assert document.resolve_run_locator(RunLocator(body_locator, 1)) == RunResolution(
+        RunLocator(body_locator, 1), "value"
+    )
+    assert document.resolve_paragraph_locator(ParagraphLocator("body:p:999")) is None
+    assert document.resolve_run_locator(RunLocator(body_locator, 999)) is None
 
 
 def test_indexes_defined_first_and_even_page_stories(tmp_path: Path) -> None:

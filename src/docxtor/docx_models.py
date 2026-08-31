@@ -34,6 +34,48 @@ class TextSegment:
 
 
 @dataclass(frozen=True)
+class ParagraphLocator:
+    """Stable, typed address of a paragraph in an indexed DOCX story."""
+
+    container_id: str
+
+
+@dataclass(frozen=True)
+class RunLocator:
+    """Stable, typed address of a run within an indexed paragraph."""
+
+    paragraph: ParagraphLocator
+    run_index: int
+
+    @property
+    def container_id(self) -> str:
+        return self.paragraph.container_id
+
+
+@dataclass(frozen=True)
+class RunResolution:
+    """Run identity and value without exposing a python-docx object."""
+
+    identity: RunLocator
+    value: str
+
+
+@dataclass(frozen=True)
+class ParagraphResolution:
+    """Paragraph identity/value projection with typed run projections.
+
+    The identity works uniformly for body, table, header, and footer stories.
+    Consumers can inspect paragraph and run values without traversing the
+    underlying python-docx object graph.
+    """
+
+    identity: ParagraphLocator
+    value: str
+    paragraph_index: int
+    runs: tuple[RunResolution, ...]
+
+
+@dataclass(frozen=True)
 class SegmentReplacement:
     """Replacement targeting a segment or a sub-range inside it.
 
