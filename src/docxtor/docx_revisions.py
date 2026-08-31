@@ -256,13 +256,15 @@ def _operate(
             root = parsed.get(entry.name)
             if root is not None:
                 if _is_word_xml(entry.name):
+                    semantic_before = etree.tostring(root, method="c14n")
                     if operation is RevisionOperation.ACCEPT_ALL:
                         _accept_tree(root, entry.name, error_type)
                     else:
                         _reject_tree(root, entry.name, drop_comments, error_type)
                     if drop_comments:
                         _strip_comment_anchors(root)
-                    payload = _serialize(root)
+                    if etree.tostring(root, method="c14n") != semantic_before:
+                        payload = _serialize(root)
                 elif entry.name.endswith(".rels") and drop_comments:
                     payload = _strip_comment_relationships(root, entry.data)
                 elif entry.name == "[Content_Types].xml" and drop_comments:
