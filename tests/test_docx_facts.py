@@ -157,3 +157,22 @@ def test_compare_detects_lost_container_surface_part_and_policy(tmp_path) -> Non
     empty = _document("")
     lost = compare_docx(before, empty, TransformPolicy.allow_all())
     assert any(change.kind is ChangeKind.CHANGED for change in lost.container_changes)
+
+
+def test_feature_facts_bind_hidden_text_to_paragraph_and_resolve_link(tmp_path) -> None:
+    document = Document()
+    paragraph = document.add_paragraph()
+    paragraph.add_run("same ")
+    hidden = paragraph.add_run("secret")
+    hidden.font.hidden = True
+    document.add_paragraph("same secret")
+    stream = BytesIO()
+    document.save(stream)
+
+    snapshot = docx_facts(stream.getvalue())
+
+    fact = next(item for item in snapshot.hidden if item.target == "secret")
+    assert fact.container_id == "body:p:0"
+    paragraph_fact = next(item for item in snapshot.paragraphs if item.container_id == "body:p:0")
+    assert paragraph_fact.xml_path
+    assert paragraph_fact.part_name == "word/document.xml"
