@@ -65,6 +65,52 @@ output.data          # bytes
 Each replacement targets a stable segment identifier. Offset-based partial
 replacements are available when a whole segment should not be rewritten.
 
+### Complete package inventory
+
+`DocxDocument.inventory()` enumerates every ZIP/OPC member, including orphan
+parts that `python-docx` cannot reach through relationships. It exposes neutral
+`DocumentSurface` records for XML text, XML attributes, and relationship targets.
+Each surface has a stable ID, value hash, visibility, and mechanical capability
+such as `value_replace` or `preserve_only`.
+
+```python
+from docxtor import DocxDocument, InventoryCoverage
+
+document = DocxDocument.open("input.docx")
+inventory = document.inventory()
+if inventory.coverage is not InventoryCoverage.COMPLETE:
+    raise RuntimeError(
+        f"uncovered DOCX parts: {inventory.unknown_parts + inventory.unreadable_parts}"
+    )
+
+for surface in inventory.surfaces:
+    print(surface.surface_id, surface.kind, surface.capability)
+```
+
+Docxtor reports physical values and capabilities only. It does not decide
+whether a value is PII, legally relevant, or review content. Consumers must
+fail closed when their policy requires complete coverage.
+
+Exact `SurfaceReplacement` mutations require the value hash observed during
+inventory. Docxtor reopens the output and returns a disposition for every
+requested surface. Unknown targets, stale hashes, preserve-only surfaces, and
+unconfirmed writes fail before partial output is returned.
+
+```python
+from docxtor import SurfaceReplacement
+
+surface = next(item for item in inventory.surfaces if item.external)
+result = document.apply_surface_replacements([
+    SurfaceReplacement(
+        surface_id=surface.surface_id,
+        expected_value_sha256=surface.value_sha256,
+        value="https://example.invalid/redacted",
+    )
+])
+assert not result.unresolved
+result.data  # verified DOCX bytes
+```
+
 Text nested in `w:ins`, `w:del` / `w:delText`, and inline `w:hyperlink` is
 addressable through `document.spans`. Each `AddressableSpan` has a stable
 `span_id`, a mechanical `role` (`run`, `insertion`, `deletion`, `hyperlink`),

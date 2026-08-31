@@ -32,6 +32,7 @@ from .docx_inline import (
     paragraph_to_inline_segments,
     rebuild_paragraph_from_inline,
 )
+from .docx_inventory import DocxInventory, inventory_docx
 from .docx_models import (
     AddressableComment,
     AddressableSpan,
@@ -41,6 +42,11 @@ from .docx_models import (
     SpanRole,
     TextSegment,
     UnsupportedRevisionError,
+)
+from .docx_mutations import (
+    SurfaceMutationResult,
+    SurfaceReplacement,
+    apply_surface_replacements,
 )
 from .docx_stories import _ParaRef, index_stories
 from .docx_units import _paragraph_spans, _paragraph_visible_text, _replace_plain_range
@@ -94,17 +100,19 @@ class DocxDocument:
         self._comments: list[AddressableComment] = []
         self._thread_parts: dict[str, tuple[bytes, str]] = {}
         self._note_parts: dict[str, tuple[Any, Any]] = {}
+        self._source_bytes: bytes | None = None
 
     @classmethod
     def open(cls, path: str | Path) -> DocxDocument:
         path = Path(path)
-        doc = PyDocxDocument(str(path))
-        return cls._from_pydocx(doc, filename=path.name)
+        return cls.open_bytes(path.read_bytes(), filename=path.name)
 
     @classmethod
     def open_bytes(cls, data: bytes, *, filename: str = "document.docx") -> DocxDocument:
         doc = PyDocxDocument(BytesIO(data))
-        return cls._from_pydocx(doc, filename=filename)
+        instance = cls._from_pydocx(doc, filename=filename)
+        instance._source_bytes = data
+        return instance
 
 
     @classmethod
@@ -137,6 +145,19 @@ class DocxDocument:
     @property
     def comments(self) -> tuple[AddressableComment, ...]:
         return tuple(self._comments)
+
+    def inventory(self) -> DocxInventory:
+        """Return a domain-blind inventory of every value carried by the DOCX package."""
+        payload = self._source_bytes if self._source_bytes is not None else self.to_bytes()
+        return inventory_docx(payload)
+
+    def apply_surface_replacements(
+        self,
+        replacements: list[SurfaceReplacement],
+    ) -> SurfaceMutationResult:
+        """Apply exact package-surface mutations and return verified output bytes."""
+        payload = self._source_bytes if self._source_bytes is not None else self.to_bytes()
+        return apply_surface_replacements(payload, replacements)
 
     # ------------------------------------------------------------------
     # Structure access (generic DOCX addressing - for Temida adapters)
