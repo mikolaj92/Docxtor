@@ -7,14 +7,15 @@ ZIP or OOXML parser APIs directly.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from posixpath import normpath
-from collections.abc import Mapping
 from typing import TypeAlias
 
+from docx.text.paragraph import Paragraph
 from lxml import etree
 
 from .docx import DocxDocument
@@ -113,6 +114,12 @@ class StoryFact:
 
 
 @dataclass(frozen=True)
+class UnreadablePartFact:
+    part_name: str
+    error: str
+
+
+@dataclass(frozen=True)
 class NamedFact:
     """A typed mechanical OOXML feature, without domain interpretation."""
 
@@ -159,6 +166,7 @@ class DocxFactsSnapshot:
     properties: tuple[NamedFact, ...]
     embedded_objects: tuple[NamedFact, ...]
     media: tuple[NamedFact, ...]
+    unreadable_parts: tuple[UnreadablePartFact, ...]
     structure: DocxStructureSnapshot
 
 
@@ -222,17 +230,20 @@ class DocxComparison:
 def docx_facts(source: Source) -> DocxFactsSnapshot:
     """Return the complete mechanical snapshot, or raise on unreadable/malformed input."""
     payload = _payload(source)
-    entries = read_package_entries(payload)
+    entries = read_package_entries(payload, validate_xml=False)
     entry_data = {entry.name: entry.data for entry in entries}
     if "[Content_Types].xml" not in entry_data:
         raise PackageError("DOCX package has no [Content_Types].xml")
     content_types = _content_types(entry_data["[Content_Types].xml"])
     ct_defaults, ct_overrides = _content_type_map(content_types)
     inventory = inventory_docx(payload)
-    if inventory.unreadable_parts:
-        raise PackageError(
-            "DOCX inventory has unreadable parts: " + ", ".join(inventory.unreadable_parts)
-        )
+    fatal_unreadable = tuple(
+        name
+        for name in inventory.unreadable_parts
+        if name.startswith("word/") or name in {"[Content_Types].xml", "_rels/.rels"}
+    )
+    if fatal_unreadable:
+        raise PackageError("DOCX inventory has unreadable parts: " + ", ".join(fatal_unreadable))
 
     relationships = _relationships(entry_data)
     reachable = _reachable(set(entry_data), relationships)
@@ -240,6 +251,10 @@ def docx_facts(source: Source) -> DocxFactsSnapshot:
         FactDiagnostic("unknown_part", "content type is not mechanically understood", name)
         for name in inventory.unknown_parts
     ]
+    diagnostics.extend(
+        FactDiagnostic("unreadable_part", "XML part is mechanically unreadable", name)
+        for name in inventory.unreadable_parts
+    )
     for rel in relationships:
         if not rel.external and rel.target_part not in entry_data:
             diagnostics.append(
@@ -270,15 +285,16 @@ def docx_facts(source: Source) -> DocxFactsSnapshot:
     # DocxDocument is the canonical story/addressing implementation. It also
     # rejects packages that python-docx cannot interpret.
     document = source if isinstance(source, DocxDocument) else DocxDocument.open_bytes(payload)
-    paragraphs = _paragraphs(document)
-    stories = _stories(paragraphs)
     xml_roots = {
         name: parse_package_xml(data, part_name=name)
         for name, data in entry_data.items()
         if inventory_parts[name].is_xml
+        and name not in inventory.unreadable_parts
         and not name.endswith(".rels")
         and name != "[Content_Types].xml"
     }
+    paragraphs = _paragraphs(document, xml_roots)
+    stories = _stories(paragraphs)
     features = _features(xml_roots, paragraphs, relationships, set(entry_data))
     orphans = tuple(sorted(set(entry_data) - reachable - {"[Content_Types].xml", "_rels/.rels"}))
     coverage = FactsCoverage.COMPLETE if not diagnostics else FactsCoverage.INCOMPLETE
@@ -323,6 +339,10 @@ def docx_facts(source: Source) -> DocxFactsSnapshot:
         features["properties"],
         features["embedded_objects"],
         features["media"],
+        tuple(
+            UnreadablePartFact(name, inventory_parts[name].error or "unreadable_xml")
+            for name in inventory.unreadable_parts
+        ),
         structure,
     )
 
@@ -528,12 +548,35 @@ def _rels_name(part: str) -> str:
     return str(path.parent / "_rels" / f"{path.name}.rels")
 
 
-def _paragraphs(document: DocxDocument) -> tuple[ParagraphFact, ...]:
+def _paragraphs(
+    document: DocxDocument, roots: dict[str, etree._Element]
+) -> tuple[ParagraphFact, ...]:
     result: list[ParagraphFact] = []
-    for index, container_id, paragraph in document.get_indexed_paragraphs():
-        style_id = paragraph.style.style_id if paragraph.style is not None else None
+    seen: set[str] = set()
+    candidates: list[tuple[int | None, str, Paragraph]] = [
+        (index, container_id, paragraph)
+        for index, container_id, paragraph in document.get_indexed_paragraphs()
+    ]
+    for segment in document.segments:
+        container_id = segment.container_id
+        if container_id is None or container_id in seen:
+            continue
+        paragraph = document.resolve_paragraph(container_id)
+        if paragraph is not None and segment.paragraph_index is None:
+            candidates.append((None, container_id, paragraph))
+    for index, container_id, paragraph in candidates:
+        if container_id in seen:
+            continue
+        seen.add(container_id)
+        part_name = _part_for_container_id(container_id)
+        path = paragraph._p.getroottree().getpath(paragraph._p)
+        root = roots.get(part_name)
+        source_paragraph = None if root is None else root.xpath(path, namespaces={"w": _W_NS})
+        element: etree._Element = source_paragraph[0] if source_paragraph else paragraph._p
+        style_nodes = element.findall(f"./{{{_W_NS}}}pPr/{{{_W_NS}}}pStyle")
+        style_id = style_nodes[0].get(f"{{{_W_NS}}}val") if style_nodes else "Normal"
         outline = None
-        nodes = paragraph._p.xpath("./w:pPr/w:outlineLvl")
+        nodes = element.findall(f"./{{{_W_NS}}}pPr/{{{_W_NS}}}outlineLvl")
         if nodes:
             raw = nodes[0].get(f"{{{_W_NS}}}val")
             try:
@@ -551,19 +594,58 @@ def _paragraphs(document: DocxDocument) -> tuple[ParagraphFact, ...]:
                 style_id,
                 outline,
                 coord,
-                paragraph._p.getroottree().getpath(paragraph._p),
-                _part_for_container_id(container_id),
+                path,
+                part_name,
             )
         )
+    for story in ("footnote", "endnote"):
+        part_name = f"word/{story}s.xml"
+        root = roots.get(part_name)
+        if root is None:
+            continue
+        tree = root.getroottree()
+        for note in root.findall(f"{{{_W_NS}}}{story}"):
+            note_type = note.get(f"{{{_W_NS}}}type")
+            note_id = note.get(f"{{{_W_NS}}}id")
+            if note_id is None or note_type in {"separator", "continuationSeparator"}:
+                continue
+            for local_index, paragraph in enumerate(note.findall(f"{{{_W_NS}}}p")):
+                container_id = f"{story}:{note_id}:p:{local_index}"
+                if container_id in seen:
+                    continue
+                seen.add(container_id)
+                text = "".join(
+                    node.text or ""
+                    for node in paragraph.iter()
+                    if etree.QName(node).localname in {"t", "delText"}
+                )
+                style_nodes = paragraph.findall(f"./{{{_W_NS}}}pPr/{{{_W_NS}}}pStyle")
+                style_id = style_nodes[0].get(f"{{{_W_NS}}}val") if style_nodes else "Normal"
+                coord = _coordinate(container_id, None)
+                result.append(
+                    ParagraphFact(
+                        container_id,
+                        None,
+                        story,
+                        text,
+                        sha256(text.encode()).hexdigest(),
+                        style_id,
+                        None,
+                        coord,
+                        tree.getpath(paragraph),
+                        part_name,
+                    )
+                )
     return tuple(result)
 
 
 def _part_for_container_id(container_id: str) -> str:
-    if container_id.startswith("body:") or container_id.startswith("table:"):
+    if container_id.startswith(("body:", "table:", "txbx:")):
         return "word/document.xml"
     bits = container_id.split(":")
-    if bits[0] in {"header", "footer"} and len(bits) > 1:
-        return f"word/{bits[0]}{int(bits[1]) + 1}.xml"
+    if bits[0].startswith(("header", "footer")) and len(bits) > 1:
+        base = bits[0].split("-", 1)[0]
+        return f"word/{base}{int(bits[1]) + 1}.xml"
     if bits[0] in {"footnote", "endnote"}:
         return f"word/{bits[0]}s.xml"
     if bits[0] == "comment":
@@ -571,7 +653,7 @@ def _part_for_container_id(container_id: str) -> str:
     return "word/document.xml"
 
 
-def _coordinate(cid: str, paragraph_index: int) -> ContainerCoordinate:
+def _coordinate(cid: str, paragraph_index: int | None) -> ContainerCoordinate:
     bits = cid.split(":")
 
     def after(token: str) -> int | None:
@@ -673,7 +755,15 @@ def _features(
                     or element.get(f"{{{_W_NS}}}fldCharType")
                     or text
                 )
-                out["field"].append(NamedFact("field", part, fid, container, value))
+                display = next(
+                    (
+                        paragraph.text
+                        for paragraph in paragraphs
+                        if paragraph.container_id == container
+                    ),
+                    None,
+                )
+                out["field"].append(NamedFact("field", part, fid, container, value, display))
             if local in {"bookmarkStart", "bookmarkEnd"}:
                 value = element.get(f"{{{_W_NS}}}name") or element.get(f"{{{_W_NS}}}id")
                 out["bookmark"].append(NamedFact("bookmark", part, fid, container, value))
@@ -691,7 +781,9 @@ def _features(
                         ),
                     )
                 )
-            if local in {"vanish", "webHidden", "specVanish"}:
+            if local in {"vanish", "webHidden", "specVanish"} and (
+                element.get(f"{{{_W_NS}}}val") or "true"
+            ).casefold() not in {"0", "false", "off", "no"}:
                 run = element.getparent()
                 while run is not None and etree.QName(run).localname != "r":
                     run = run.getparent()
@@ -727,7 +819,7 @@ def _features(
                         part,
                         fid,
                         container,
-                        local,
+                        " ".join(value for value in (local, *element.attrib.values()) if value),
                         element.get(f"{{{_R_NS}}}id"),
                     )
                 )
@@ -735,9 +827,11 @@ def _features(
     binary_parts = set(part_names)
     binary_parts.update(r.target_part for r in relationships if r.target_part)
     for part in sorted(binary_parts):
-        if part.startswith("word/media/"):
+        if part.startswith("word/embeddings/"):
+            out["embedded_object"].append(NamedFact("embedded_object", part, part))
+        elif part.startswith("word/media/"):
             out["media"].append(NamedFact("media", part, part))
-        elif part.startswith(("word/embeddings/", "word/activeX/")):
+        elif part.startswith("word/activeX/"):
             out["embedded_object"].append(NamedFact("embedded_object", part, part))
     return {plural: tuple(out[singular[plural]]) for plural in _FEATURE_CATEGORIES}
 

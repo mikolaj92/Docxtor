@@ -1,4 +1,4 @@
-__version__ = "0.8.1"
+__version__ = "0.8.2"
 
 from .common import (
     DOCX_MIME,
@@ -54,6 +54,7 @@ from .docx_facts import (
     RelationshipFact,
     StoryFact,
     TransformPolicy,
+    UnreadablePartFact,
     compare_docx,
     docx_facts,
 )
@@ -144,6 +145,7 @@ __all__ = [
     "DocxFactsSnapshot",
     "DocxStructureSnapshot",
     "TransformPolicy",
+    "UnreadablePartFact",
     "compare_docx",
     "docx_facts",
     "RevisionAuthor",
