@@ -32,6 +32,23 @@ from .docx import (
     paragraph_to_inline_segments,
     rebuild_paragraph_from_inline,
 )
+from .docx_inventory import (
+    DocumentSurface,
+    DocxInventory,
+    InventoryCoverage,
+    PackagePart,
+    SurfaceCapability,
+    SurfaceKind,
+    SurfaceVisibility,
+)
+from .docx_mutations import (
+    SurfaceDisposition,
+    SurfaceDispositionStatus,
+    SurfaceMutationError,
+    SurfaceMutationResult,
+    SurfaceReplacement,
+    apply_surface_replacements,
+)
 from .loader import document_to_bytes, load_document
 from .pdf import PdfDocument, PdfExtractionMode
 from .text import PlainTextDocument
@@ -48,7 +65,19 @@ __all__ = [
     "DetectedDocumentType",
     "AddressableComment",
     "AddressableSpan",
+    "DocumentSurface",
     "DocxDocument",
+    "DocxInventory",
+    "InventoryCoverage",
+    "PackagePart",
+    "SurfaceCapability",
+    "SurfaceDisposition",
+    "SurfaceDispositionStatus",
+    "SurfaceKind",
+    "SurfaceMutationError",
+    "SurfaceMutationResult",
+    "SurfaceReplacement",
+    "SurfaceVisibility",
     "InlineSegment",
     "InlineSegmentKind",
     "PdfExtractionMode",
@@ -69,6 +98,7 @@ __all__ = [
     "_visible_text",
     "paragraph_to_inline_segments",
     "rebuild_paragraph_from_inline",
+    "apply_surface_replacements",
     "detect_document_type",
     "document_to_bytes",
     "load_document",
