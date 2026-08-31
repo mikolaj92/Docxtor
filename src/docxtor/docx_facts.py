@@ -12,6 +12,7 @@ from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from posixpath import normpath
+from collections.abc import Mapping
 from typing import TypeAlias
 
 from lxml import etree
@@ -100,6 +101,8 @@ class ParagraphFact:
     style_id: str | None
     outline_level: int | None
     coordinate: ContainerCoordinate
+    xml_path: str | None = None
+    part_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -548,9 +551,24 @@ def _paragraphs(document: DocxDocument) -> tuple[ParagraphFact, ...]:
                 style_id,
                 outline,
                 coord,
+                paragraph._p.getroottree().getpath(paragraph._p),
+                _part_for_container_id(container_id),
             )
         )
     return tuple(result)
+
+
+def _part_for_container_id(container_id: str) -> str:
+    if container_id.startswith("body:") or container_id.startswith("table:"):
+        return "word/document.xml"
+    bits = container_id.split(":")
+    if bits[0] in {"header", "footer"} and len(bits) > 1:
+        return f"word/{bits[0]}{int(bits[1]) + 1}.xml"
+    if bits[0] in {"footnote", "endnote"}:
+        return f"word/{bits[0]}s.xml"
+    if bits[0] == "comment":
+        return "word/comments.xml"
+    return "word/document.xml"
 
 
 def _coordinate(cid: str, paragraph_index: int) -> ContainerCoordinate:
@@ -599,6 +617,20 @@ _FEATURE_CATEGORIES = (
 )
 
 
+def _container_for_element(
+    part_name: str,
+    element: etree._Element,
+    containers: Mapping[tuple[str, str], str],
+) -> str | None:
+    current: etree._Element | None = element
+    tree = element.getroottree()
+    while current is not None:
+        if etree.QName(current).localname == "p":
+            return containers.get((part_name, tree.getpath(current)))
+        current = current.getparent()
+    return None
+
+
 def _features(
     roots: dict[str, etree._Element],
     paragraphs: tuple[ParagraphFact, ...],
@@ -618,7 +650,15 @@ def _features(
         "media": "media",
     }
     out: dict[str, list[NamedFact]] = {name: [] for name in singular.values()}
-    containers = {p.text: p.container_id for p in paragraphs}
+    containers_by_part_path = {
+        (paragraph.part_name, paragraph.xml_path): paragraph.container_id
+        for paragraph in paragraphs
+        if paragraph.part_name and paragraph.xml_path
+    }
+    relationship_targets = {
+        (relationship.source_part, relationship.relationship_id): relationship.target
+        for relationship in relationships
+    }
     for part, root in sorted(roots.items()):
         tree = root.getroottree()
         for element in root.iter():
@@ -626,7 +666,7 @@ def _features(
             path = tree.getpath(element)
             fid = f"{part}:{path}"
             text = "".join(element.itertext()) or None
-            container = containers.get(text or "")
+            container = _container_for_element(part, element, containers_by_part_path)
             if local in {"fldSimple", "instrText", "fldChar"}:
                 value = (
                     element.get(f"{{{_W_NS}}}instr")
@@ -645,18 +685,36 @@ def _features(
                         fid,
                         container,
                         element.get(f"{{{_W_NS}}}anchor"),
-                        element.get(f"{{{_R_NS}}}id"),
+                        relationship_targets.get(
+                            (part, element.get(f"{{{_R_NS}}}id") or ""),
+                            element.get(f"{{{_R_NS}}}id"),
+                        ),
                     )
                 )
             if local in {"vanish", "webHidden", "specVanish"}:
-                out["hidden"].append(NamedFact("hidden", part, fid, container, local))
+                run = element.getparent()
+                while run is not None and etree.QName(run).localname != "r":
+                    run = run.getparent()
+                run_text = "" if run is None else "".join(run.itertext())
+                out["hidden"].append(NamedFact("hidden", part, fid, container, local, run_text))
             if local.startswith("comment") or part.startswith("word/comments"):
                 out["comment"].append(
                     NamedFact("comment", part, fid, container, element.get(f"{{{_W_NS}}}id"), text)
                 )
             if local in {"footnote", "endnote", "footnoteReference", "endnoteReference"}:
                 out["note"].append(
-                    NamedFact(local, part, fid, container, element.get(f"{{{_W_NS}}}id"), text)
+                    NamedFact(
+                        (
+                            f"{local}_{element.get(f'{{{_W_NS}}}type') or 'user'}"
+                            if local in {"footnote", "endnote"}
+                            else local
+                        ),
+                        part,
+                        fid,
+                        container,
+                        element.get(f"{{{_W_NS}}}id"),
+                        text,
+                    )
                 )
             if local == "txbxContent":
                 out["textbox"].append(NamedFact("textbox", part, fid, container, text))
