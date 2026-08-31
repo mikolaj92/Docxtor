@@ -571,7 +571,12 @@ def _paragraphs(
         part_name = _part_for_container_id(container_id)
         path = paragraph._p.getroottree().getpath(paragraph._p)
         root = roots.get(part_name)
-        source_paragraph = None if root is None else root.xpath(path, namespaces={"w": _W_NS})
+        namespaces = (
+            {}
+            if root is None
+            else {key: value for key, value in root.nsmap.items() if key is not None}
+        )
+        source_paragraph = None if root is None else root.xpath(path, namespaces=namespaces)
         element: etree._Element = source_paragraph[0] if source_paragraph else paragraph._p
         style_nodes = element.findall(f"./{{{_W_NS}}}pPr/{{{_W_NS}}}pStyle")
         style_id = style_nodes[0].get(f"{{{_W_NS}}}val") if style_nodes else "Normal"
