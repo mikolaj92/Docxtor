@@ -187,3 +187,11 @@ def test_review_inventory_associates_comment_with_revision() -> None:
     assert association.comment_id == "0"
     assert association.revision_kinds == ("ins",)
     assert association.part_names == ("word/document.xml",)
+
+
+def test_review_inventory_reads_standalone_comments_part() -> None:
+    body = '<w:p><w:commentRangeStart w:id="2"/><w:r><w:t>x</w:t></w:r><w:commentRangeEnd w:id="2"/><w:r><w:commentReference w:id="2"/></w:r></w:p>'
+    comments = f'<w:comments xmlns:w="{W}"><w:comment w:id="2" w:author="A"><w:p><w:r><w:t>note</w:t></w:r></w:p></w:comment></w:comments>'
+    data = _package(_document(body), **{"word/comments.xml": comments})
+    inventory = inventory_review_markup(data)
+    assert [(item.comment_id, item.text) for item in inventory.comments] == [("2", "note")]
