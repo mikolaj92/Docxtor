@@ -76,6 +76,23 @@ def test_inventory_and_inline_accept_reject() -> None:
     assert accepted.after.count == rejected.after.count == 0
 
 
+@pytest.mark.parametrize("operation", [accept_all_revisions_bytes, reject_all_revisions_bytes])
+def test_revision_disposition_preserves_untouched_word_xml_bytes(operation) -> None:
+    unrelated = (
+        b"<?xml version='1.0' encoding='UTF-8' standalone='yes'?>"
+        + f'<w:fonts xmlns:w="{W}"><w:font w:name="Exact"/></w:fonts>'.encode()
+    )
+    data = _package(
+        _document('<w:p><w:ins w:id="1"><w:r><w:t>new</w:t></w:r></w:ins></w:p>'),
+        **{"word/fontTable.xml": unrelated.decode()},
+    )
+
+    result = operation(data).output_bytes
+
+    with ZipFile(BytesIO(result)) as archive:
+        assert archive.read("word/fontTable.xml") == unrelated
+
+
 def test_paragraph_mark_deletion_accepts_by_joining_and_reject_preserves() -> None:
     body = '<w:p><w:pPr><w:rPr><w:del w:id="1" w:author="A"/></w:rPr></w:pPr><w:r><w:t>first</w:t></w:r></w:p><w:p><w:r><w:t>second</w:t></w:r></w:p>'
     data = _package(_document(body))
