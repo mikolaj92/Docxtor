@@ -12,11 +12,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 from .docx import DocxDocument
-from .docx_inline import (
-    _visible_text,
-    paragraph_to_inline_segments,
-)
-from .docx_models import InlineSegment
+from .docx_inline import paragraph_to_inline_segments
 from .docx_package import normalize_docx_timestamps
 from .docx_publish import publish_docx
 from .docx_revisions import inventory_revisions_bytes
@@ -201,13 +197,7 @@ def render_physical_clean(
 def _apply_edit(
     pieces: list[_Piece], edit: PhysicalReviewEdit, next_id: int, tracked: bool = True
 ) -> tuple[list[_Piece], int]:
-    base = [
-        InlineSegment(
-            "text" if p.kind in {"text", "ins", "del"} else "opaque", p.text, p.rpr, p.element
-        )
-        for p in pieces
-    ]
-    visible = _visible_text(base)
+    visible = "".join(piece.text for piece in pieces if piece.kind != "ins")
     if not 0 <= edit.start_offset <= edit.end_offset <= len(visible):
         raise PhysicalReviewRenderError(f"invalid review range at {edit.locator}")
     if (
