@@ -167,7 +167,6 @@ def _validate_comment_markers(
     diagnostics: list[ReviewDiagnostic],
 ) -> None:
     bodies = {comment.comment_id for comment in comments}
-    replies = {comment.comment_id for comment in comments if comment.parent_id is not None}
     counts: dict[str, dict[str, int]] = {}
     for entry in entries:
         if not entry.name.startswith("word/") or not entry.name.endswith(".xml"):
@@ -188,7 +187,7 @@ def _validate_comment_markers(
         if comment_id not in bodies:
             diagnostics.append(ReviewDiagnostic("orphan_comment_marker", comment_id))
         names = ("commentRangeStart", "commentRangeEnd", "commentReference")
-        expected = comment_id not in replies or bool(row)
+        expected = bool(row)
         if expected and any(row.get(name, 0) != 1 for name in names):
             diagnostics.append(ReviewDiagnostic("incomplete_comment_range", comment_id))
 
