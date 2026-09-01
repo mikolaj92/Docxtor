@@ -1,4 +1,4 @@
-__version__ = "0.10.0"
+__version__ = "0.10.1"
 
 from .common import (
     DOCX_MIME,
@@ -38,6 +38,7 @@ from .docx_comment_mutations import (
     CommentMutationResult,
     CommentRange,
     add_comment,
+    add_paragraph_comment,
     remove_comments,
 )
 from .docx_facts import (
@@ -176,6 +177,7 @@ __all__ = [
     "CommentMutationResult",
     "CommentRange",
     "add_comment",
+    "add_paragraph_comment",
     "remove_comments",
     "PublishError",
     "PublishReceipt",

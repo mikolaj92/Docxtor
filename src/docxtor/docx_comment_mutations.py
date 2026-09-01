@@ -6,6 +6,7 @@ from io import BytesIO
 from typing import Any, cast
 
 from docx import Document as PyDocxDocument
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 from .common import DocumentError
@@ -187,3 +188,49 @@ def _serialize(doc: Any) -> bytes:
     buffer = BytesIO()
     doc.save(buffer)
     return buffer.getvalue()
+
+
+def add_paragraph_comment(
+    data: bytes, locator: str, text: str, author: CommentAuthor
+) -> CommentMutationResult:
+    """Add a comment around a whole paragraph, including existing revision wrappers."""
+    if not text:
+        raise CommentMutationError("comment text must not be empty")
+    doc = PyDocxDocument(BytesIO(data))
+    paragraph = index_stories(doc).paragraphs_by_container.get(locator)
+    if paragraph is None:
+        raise CommentMutationError(f"unknown comment locator: {locator}")
+    comment = doc.comments.add_comment(text=text, author=author.author, initials=author.initials)
+    if author.date is not None:
+        comment._comment_elm.set(qn("w:date"), author.date)
+    comment_id = int(comment.comment_id)
+    start = OxmlElement("w:commentRangeStart")
+    start.set(qn("w:id"), str(comment_id))
+    end = OxmlElement("w:commentRangeEnd")
+    end.set(qn("w:id"), str(comment_id))
+    reference_run = OxmlElement("w:r")
+    reference = OxmlElement("w:commentReference")
+    reference.set(qn("w:id"), str(comment_id))
+    reference_run.append(reference)
+    properties = paragraph._p.find(qn("w:pPr"))
+    if properties is None:
+        paragraph._p.insert(0, start)
+    else:
+        properties.addnext(start)
+    paragraph._p.append(end)
+    paragraph._p.append(reference_run)
+    payload = _serialize(doc)
+    after = index_stories(PyDocxDocument(BytesIO(payload)))
+    return CommentMutationResult(
+        data=payload,
+        receipt=OperationReceipt(
+            "add_paragraph_comment",
+            OperationStatus.APPLIED,
+            ("word/comments.xml",),
+            (str(comment_id),),
+            locator,
+            sha256(data).hexdigest(),
+            sha256(payload).hexdigest(),
+        ),
+        comments=tuple(after.comments),
+    )
