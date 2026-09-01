@@ -5,13 +5,15 @@ from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from zipfile import BadZipFile
 
 from docx import Document as PyDocxDocument
 from docx.document import Document as DocxDocumentType
+from docx.opc.exceptions import PackageNotFoundError
 from docx.opc.oxml import serialize_part_xml
 from docx.text.paragraph import Paragraph
 
-from .common import DOCX_MIME, DocumentBytes, output_filename
+from .common import DOCX_MIME, DocumentBytes, DocumentError, output_filename
 from .docx_comments import (
     _collect_comments,
     _ensure_thread_parts,
@@ -107,7 +109,10 @@ class DocxDocument:
 
     @classmethod
     def open_bytes(cls, data: bytes, *, filename: str = "document.docx") -> DocxDocument:
-        doc = PyDocxDocument(BytesIO(data))
+        try:
+            doc = PyDocxDocument(BytesIO(data))
+        except (BadZipFile, PackageNotFoundError, KeyError, ValueError) as exc:
+            raise DocumentError(f"unreadable DOCX package: {exc}") from exc
         instance = cls._from_pydocx(doc, filename=filename)
         instance._source_bytes = data
         return instance
@@ -155,10 +160,6 @@ class DocxDocument:
         payload = self._source_bytes if self._source_bytes is not None else self.to_bytes()
         return apply_surface_replacements(payload, replacements)
 
-    # ------------------------------------------------------------------
-    # Structure access (generic DOCX addressing - for Temida adapters)
-    # ------------------------------------------------------------------
-
     def resolve_paragraph(self, container_id: str) -> Paragraph | None:
         """Resolve a python-docx Paragraph by stable container_id.
 
@@ -201,10 +202,6 @@ class DocxDocument:
         if para is None:
             return []
         return paragraph_to_inline_segments(para)
-
-    # ------------------------------------------------------------------
-    # High-level target application (WriteTarget style)
-    # ------------------------------------------------------------------
 
     def apply_targets(
         self,
