@@ -1,6 +1,6 @@
 [project]
 name = "docxtor"
-version = "0.14.0"
+version = "0.14.1"
 description = "Extract editable text segments from documents and inject changed text back in memory."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,7 +18,7 @@ dev = [
   "mypy>=1.15",
   "pytest>=8.0",
   "reportlab>=4.2.0",
-  "ruff>=0.14.0",
+  "ruff>=0.14.1",
 ]
 
 [tool.ruff]
