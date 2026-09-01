@@ -218,7 +218,7 @@ def _apply_edit(
     pieces = _split_pieces(pieces, edit.end_offset)
     pieces = _split_pieces(pieces, edit.start_offset)
     start = _piece_index(pieces, edit.start_offset)
-    end = _piece_index(pieces, edit.end_offset)
+    end = _piece_index(pieces, edit.end_offset, end_boundary=True)
     chosen = pieces[start:end]
     if edit.end_offset > edit.start_offset and (
         not chosen or any(p.kind != "text" for p in chosen)
@@ -281,11 +281,11 @@ def _split_pieces(pieces: list[_Piece], offset: int) -> list[_Piece]:
     return out
 
 
-def _piece_index(pieces: list[_Piece], offset: int) -> int:
+def _piece_index(pieces: list[_Piece], offset: int, *, end_boundary: bool = False) -> int:
     pos = 0
     for i, piece in enumerate(pieces):
         length = _coordinate_length(piece)
-        if pos == offset and length > 0:
+        if pos == offset and (end_boundary or length > 0):
             return i
         if pos + length > offset:
             return i
@@ -326,14 +326,16 @@ def _mark_comment(
     if comment.start_offset is not None and comment.end_offset is not None:
         pieces[:] = _split_pieces(_split_pieces(pieces, comment.end_offset), comment.start_offset)
         start = _piece_index(pieces, comment.start_offset)
-        end = max(start, _piece_index(pieces, comment.end_offset) - 1)
+        end = max(start, _piece_index(pieces, comment.end_offset, end_boundary=True) - 1)
     elif comment.anchor_text:
         text = "".join(p.text for p in pieces)
         at = text.find(comment.anchor_text)
         if at >= 0:
             pieces[:] = _split_pieces(_split_pieces(pieces, at + len(comment.anchor_text)), at)
             start = _piece_index(pieces, at)
-            end = max(start, _piece_index(pieces, at + len(comment.anchor_text)) - 1)
+            end = max(
+                start, _piece_index(pieces, at + len(comment.anchor_text), end_boundary=True) - 1
+            )
     cid = _create_comment(doc, comment.text, reviewer)
     pieces[start].start_comments.append(cid)
     pieces[end].end_comments.append(cid)
