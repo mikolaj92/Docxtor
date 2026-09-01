@@ -89,6 +89,48 @@ def test_notes_fields_bookmarks_and_hidden_are_typed(tmp_path) -> None:
     assert snapshot.hidden
 
 
+def test_settings_note_defaults_and_separator_only_parts_are_not_user_notes(tmp_path) -> None:
+    data = _document()
+    settings = next(e.data for e in read_package_entries(data) if e.name == "word/settings.xml")
+    defaults = (
+        b'<w:footnotePr><w:footnote w:id="-1"/><w:footnote w:id="0"/></w:footnotePr>'
+        b'<w:endnotePr><w:endnote w:id="-1"/><w:endnote w:id="0"/></w:endnotePr>'
+    )
+    settings = settings.replace(b"</w:settings>", defaults + b"</w:settings>")
+    footnotes = (
+        b'<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:footnote w:id="-1" w:type="separator"><w:p/></w:footnote>'
+        b'<w:footnote w:id="0" w:type="continuationSeparator"><w:p/></w:footnote>'
+        b"</w:footnotes>"
+    )
+    endnotes = (
+        b'<w:endnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        b'<w:endnote w:id="-1" w:type="separator"><w:p/></w:endnote>'
+        b'<w:endnote w:id="0" w:type="continuationSeparator"><w:p/></w:endnote>'
+        b"</w:endnotes>"
+    )
+    changed = _rewrite(
+        tmp_path,
+        data,
+        {
+            "word/settings.xml": settings,
+            "word/footnotes.xml": footnotes,
+            "word/endnotes.xml": endnotes,
+        },
+    )
+
+    snapshot = docx_facts(changed)
+
+    assert not [note for note in snapshot.notes if note.kind.endswith("_user")]
+    assert {note.kind for note in snapshot.notes} == {
+        "footnote_separator",
+        "footnote_continuationSeparator",
+        "endnote_separator",
+        "endnote_continuationSeparator",
+    }
+    assert all(note.part_name != "word/settings.xml" for note in snapshot.notes)
+
+
 def test_footnote_part_and_relationship_are_reported(tmp_path) -> None:
     data = _document()
     rels_name = "word/_rels/document.xml.rels"
