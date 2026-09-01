@@ -179,19 +179,30 @@ def inventory_docx(data: bytes) -> DocxInventory:
                     error = type(exc).__name__
                     unreadable_parts.append(name)
                 else:
-                    surfaces.append(
-                        _surface(
-                            surface_id=f"text-part:{name}",
-                            kind=SurfaceKind.XML_TEXT,
-                            part_name=name,
-                            value=value,
-                            visibility=SurfaceVisibility.HIDDEN,
-                            capability=SurfaceCapability.VALUE_REPLACE,
-                            xml_path="/",
-                            xml_name="content",
-                            role="text_part_content",
+                    if name.lower().endswith((".html", ".htm", ".xhtml")):
+                        try:
+                            root = etree.fromstring(payload, parser=_safe_xml_parser())
+                        except (etree.XMLSyntaxError, ValueError):
+                            root = etree.HTML(value)
+                        if root is None:
+                            error = "HTMLParseError"
+                            unreadable_parts.append(name)
+                        else:
+                            surfaces.extend(_xml_surfaces(name, root))
+                    else:
+                        surfaces.append(
+                            _surface(
+                                surface_id=f"text-part:{name}",
+                                kind=SurfaceKind.XML_TEXT,
+                                part_name=name,
+                                value=value,
+                                visibility=SurfaceVisibility.HIDDEN,
+                                capability=SurfaceCapability.VALUE_REPLACE,
+                                xml_path="/",
+                                xml_name="content",
+                                role="text_part_content",
+                            )
                         )
-                    )
             elif not understood:
                 unknown_parts.append(name)
 

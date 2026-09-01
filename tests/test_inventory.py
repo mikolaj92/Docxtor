@@ -149,5 +149,20 @@ def test_inventory_exposes_html_text_surface(tmp_path: Path) -> None:
     path.write_bytes(buffer.getvalue())
     inventory = DocxDocument.open(path).inventory()
     surface = next(item for item in inventory.surfaces if item.part_name == "word/afchunk.html")
-    assert surface.role == "text_part_content"
-    assert "mailto:a@example.com" in surface.value
+    assert surface.role == "xml_a_href"
+    assert surface.value == "mailto:a@example.com"
+
+
+def test_html_namespace_is_not_a_value_surface(tmp_path: Path) -> None:
+    path = tmp_path / "namespace.docx"
+    _write_docx(path)
+    buffer = BytesIO()
+    with ZipFile(path) as source, ZipFile(buffer, "w", ZIP_DEFLATED) as output:
+        for item in source.infolist():
+            output.writestr(item, source.read(item.filename))
+        output.writestr(
+            "word/afchunk.html", b'<html xmlns="http://www.w3.org/1999/xhtml"><body>x</body></html>'
+        )
+    path.write_bytes(buffer.getvalue())
+    inventory = DocxDocument.open(path).inventory()
+    assert not any(item.value == "http://www.w3.org/1999/xhtml" for item in inventory.surfaces)
