@@ -5,9 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from .docx_facts import docx_facts
 from .docx_inventory import inventory_docx
-from .docx_package import PackageError
 
 _OLE_CFB_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
@@ -44,25 +42,20 @@ def inspect_docx_admission(content: bytes) -> DocxAdmissionInspection:
         if has_main
         else DocumentPackageKind.INVALID
     )
-    pages = None
+    page = next(
+        (
+            item.value
+            for item in inventory.surfaces
+            if item.part_name == "docProps/app.xml"
+            and (item.xml_name or "").casefold() == "pages"
+            and item.attribute_qname is None
+        ),
+        None,
+    )
+    try:
+        parsed = int(page) if page is not None else 0
+    except ValueError:
+        parsed = 0
+    pages = parsed if parsed > 0 else None
     diagnostics = tuple(inventory.unreadable_parts + inventory.unknown_parts)
-    if kind is DocumentPackageKind.VALID:
-        try:
-            facts = docx_facts(content)
-        except PackageError as exc:
-            diagnostics = diagnostics + (str(exc),)
-        else:
-            page = next(
-                (
-                    item.target
-                    for item in facts.properties
-                    if item.part_name == "docProps/app.xml" and item.value == "Pages"
-                ),
-                None,
-            )
-            try:
-                parsed = int(page) if page is not None else 0
-            except ValueError:
-                parsed = 0
-            pages = parsed if parsed > 0 else None
     return DocxAdmissionInspection(kind, has_main, macros, pages, diagnostics)
