@@ -67,6 +67,19 @@ _RANGE_PAIRS = (
     ("customXmlDelRangeStart", "customXmlDelRangeEnd"),
     ("customXmlInsRangeStart", "customXmlInsRangeEnd"),
 )
+
+_FORMATTING_PROPERTY_CHANGES = frozenset({"pPrChange", "rPrChange"})
+_EMPTY_CUSTOM_XML_RANGE_MARKERS = frozenset(
+    {
+        "customXmlInsRangeStart",
+        "customXmlInsRangeEnd",
+        "customXmlDelRangeStart",
+        "customXmlDelRangeEnd",
+    }
+)
+_BLOCK_REVISION_CHILDREN = frozenset({"p", "tbl", "tr", "tc"})
+_PROPERTY_CHANGE_SNAPSHOT = {"pPrChange": "pPr", "rPrChange": "rPr"}
+
 _REJECT_UNSUPPORTED = (
     "cellDel",
     "cellIns",
@@ -197,6 +210,13 @@ def inventory_revisions_bytes(data: bytes) -> RevisionInventory:
             if element_namespace != _W or local not in _REVISION_NAMES:
                 continue
             locator = tree.getpath(element)
+            unsafe_detail = _unsafe_revision_detail(element, local)
+            if unsafe_detail:
+                diagnostics.append(
+                    RevisionCoverageDiagnostic(
+                        entry.name, "unsafe_revision_shape", unsafe_detail, locator
+                    )
+                )
             if local in _UNSUPPORTED_RANGES:
                 diagnostics.append(
                     RevisionCoverageDiagnostic(
@@ -224,6 +244,53 @@ def inventory_revisions_bytes(data: bytes) -> RevisionInventory:
         ),
         diagnostics=tuple(diagnostics),
     )
+
+
+def _unsafe_revision_detail(element: etree._Element, kind: str) -> str | None:
+    if kind in _FORMATTING_PROPERTY_CHANGES:
+        expected = _PROPERTY_CHANGE_SNAPSHOT[kind]
+        children = list(element)
+        if len(children) != 1 or _split_tag(children[0].tag)[1] != expected:
+            return f"malformed {kind} snapshot"
+        for descendant in element.iterdescendants():
+            local = _split_tag(descendant.tag)[1]
+            if local in _BLOCK_REVISION_CHILDREN:
+                return f"{kind} contains block content"
+            if local in {"ins", "del"} and (list(descendant) or _direct_revision_text(descendant)):
+                return f"{kind} contains text-bearing revision"
+        if _direct_revision_text(element):
+            return f"{kind} owns text"
+        return None
+    if kind in _EMPTY_CUSTOM_XML_RANGE_MARKERS:
+        if list(element) or _direct_revision_text(element):
+            return f"{kind} is not an empty range marker"
+        return None
+    if kind in {"ins", "del"}:
+        for descendant in element.iterdescendants():
+            if _split_tag(descendant.tag)[1] in _BLOCK_REVISION_CHILDREN:
+                return f"{kind} contains block content"
+    return None
+
+
+def _direct_revision_text(element: etree._Element) -> str:
+    parts: list[str] = []
+    for node in element.iter():
+        local = _split_tag(node.tag)[1]
+        if local not in {"t", "delText", "tab", "br", "cr"}:
+            continue
+        parent = node.getparent()
+        nested = False
+        while parent is not None and parent is not element:
+            if _split_tag(parent.tag)[1] in {"ins", "del"}:
+                nested = True
+                break
+            parent = parent.getparent()
+        if nested:
+            continue
+        parts.append(
+            node.text or "" if local in {"t", "delText"} else "\t" if local == "tab" else "\n"
+        )
+    return "".join(parts)
 
 
 def accept_all_revisions_bytes(
