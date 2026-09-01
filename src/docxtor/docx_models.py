@@ -34,6 +34,48 @@ class TextSegment:
 
 
 @dataclass(frozen=True)
+class ParagraphLocator:
+    """Stable typed address of a paragraph in an indexed DOCX story."""
+
+    container_id: str
+
+
+@dataclass(frozen=True)
+class RunLocator:
+    """Stable typed address of a run within an indexed paragraph."""
+
+    paragraph: ParagraphLocator
+    run_index: int
+
+    @property
+    def container_id(self) -> str:
+        return self.paragraph.container_id
+
+
+@dataclass(frozen=True)
+class RunResolution:
+    """Run identity and current text without exposing a python-docx object."""
+
+    identity: RunLocator
+    value: str
+
+
+@dataclass(frozen=True)
+class ParagraphResolution:
+    """Paragraph identity/value projection with typed run projections.
+
+    Identity and values work uniformly for body, table, header, and footer
+    stories. Empty paragraphs are included so ``paragraph_index`` remains the
+    stable global coordinate exposed by Docxtor.
+    """
+
+    identity: ParagraphLocator
+    value: str
+    paragraph_index: int
+    runs: tuple[RunResolution, ...]
+
+
+@dataclass(frozen=True)
 class SegmentReplacement:
     """Replacement targeting a segment or a sub-range inside it.
 

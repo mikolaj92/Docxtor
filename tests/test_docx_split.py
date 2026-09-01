@@ -17,6 +17,7 @@ def test_docx_godfile_is_split_into_small_modules() -> None:
         "docx_models.py",
         "docx_inline.py",
         "docx_units.py",
+        "docx_locators.py",
         "docx_comments.py",
         "docx_stories.py",
         "docx.py",

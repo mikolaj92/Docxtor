@@ -71,6 +71,7 @@ from .docx_inventory import (
     SurfaceVisibility,
     inventory_docx,
 )
+from .docx_models import ParagraphLocator, ParagraphResolution, RunLocator, RunResolution
 from .docx_mutations import (
     SurfaceDisposition,
     SurfaceDispositionStatus,
@@ -235,6 +236,10 @@ __all__ = [
     "inventory_docx",
     "InlineSegment",
     "InlineSegmentKind",
+    "ParagraphLocator",
+    "ParagraphResolution",
+    "RunLocator",
+    "RunResolution",
     "PdfExtractionMode",
     "PdfDocument",
     "PlainTextDocument",
