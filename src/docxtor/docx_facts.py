@@ -891,6 +891,10 @@ def _features(
                 out["comment"].append(
                     NamedFact("comment", part, fid, container, element.get(f"{{{_W_NS}}}id"), text)
                 )
+            if local in {"footnote", "endnote"} and part == "word/settings.xml":
+                # footnotePr/endnotePr list Word's default note IDs as settings
+                # metadata; they are not user-authored note definitions.
+                continue
             if local in {"footnote", "endnote", "footnoteReference", "endnoteReference"}:
                 note_text = "".join(
                     (node.text or "")
