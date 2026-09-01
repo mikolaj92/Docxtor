@@ -7,7 +7,7 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
-import fitz
+import pymupdf as fitz
 
 from .common import PDF_MIME, DocumentBytes, DocumentError, output_filename
 from .docx import TextSegment
