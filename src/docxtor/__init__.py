@@ -95,7 +95,7 @@ from .docx_properties import (
     set_core_keywords,
 )
 from .docx_publish import PublishError, PublishReceipt, publish_docx
-from .docx_review_inventory import inventory_review_markup
+from .docx_review_inventory import inspect_review_purity, inventory_review_markup
 from .docx_review_models import (
     CommentRevisionAssociation,
     OperationReceipt,
@@ -103,7 +103,10 @@ from .docx_review_models import (
     ReviewBatchReceipt,
     ReviewCoverage,
     ReviewDiagnostic,
+    ReviewDocumentProjection,
     ReviewMarkupInventory,
+    ReviewParagraph,
+    ReviewPurityInspection,
 )
 from .docx_review_transaction import (
     ReviewCommand,
@@ -193,13 +196,17 @@ __all__ = [
     "inventory_revisions_bytes",
     "reject_all_revisions_bytes",
     "inventory_review_markup",
+    "inspect_review_purity",
     "CommentRevisionAssociation",
     "OperationReceipt",
     "OperationStatus",
     "ReviewBatchReceipt",
     "ReviewCoverage",
     "ReviewDiagnostic",
+    "ReviewDocumentProjection",
     "ReviewMarkupInventory",
+    "ReviewParagraph",
+    "ReviewPurityInspection",
     "ReviewCommand",
     "ReviewTransactionError",
     "apply_review_batch",
@@ -269,6 +276,8 @@ __all__ = [
     "PackageTransactionReceipt",
     "apply_docx_transaction",
     "apply_package_transaction",
+    "remove_package_parts",
+    "remove_review_comment_parts",
     "PackageGraph",
     "PackageRelationship",
     "BodyAppendix",
@@ -308,6 +317,8 @@ from .docx_package_transaction import (
     PackageMutationKind,
     PackageTransactionReceipt,
     apply_package_transaction,
+    remove_package_parts,
+    remove_review_comment_parts,
 )
 from .docx_publication_marks import (
     BodyAppendix,

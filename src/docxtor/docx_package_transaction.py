@@ -386,6 +386,47 @@ def _resolve_target(source: str, target: str) -> str:
     return "/".join(stack)
 
 
+def remove_package_parts(
+    data: bytes,
+    names: Sequence[str],
+    *,
+    cascade: bool = True,
+) -> PackageTransactionReceipt:
+    """Remove named OPC parts through the verified package transaction boundary."""
+    inventory = inventory_docx(data)
+    parts = {item.name: item for item in inventory.parts}
+    unknown = sorted(set(names) - parts.keys())
+    if unknown:
+        raise PackageMutationError(f"unknown package parts: {unknown}")
+    return apply_package_transaction(
+        data,
+        tuple(
+            PackageMutation(
+                operation_id=f"remove-part:{name}",
+                kind=PackageMutationKind.REMOVE_PART,
+                target_id=name,
+                expected_sha256=parts[name].sha256,
+                cascade=cascade,
+            )
+            for name in names
+        ),
+    )
+
+
+def remove_review_comment_parts(data: bytes) -> PackageTransactionReceipt:
+    """Remove comment bodies/thread sidecars and their OPC graph references."""
+    inventory = inventory_docx(data)
+    names = tuple(
+        part.name
+        for part in inventory.parts
+        if part.name == "word/comments.xml"
+        or part.name == "word/people.xml"
+        or part.name.startswith("word/commentsExtended")
+        or part.name.startswith("word/commentsIds")
+    )
+    return remove_package_parts(data, names) if names else apply_package_transaction(data, ())
+
+
 def _package_bytes(entries: tuple[PackageEntry, ...]) -> bytes:
     from io import BytesIO
     from zipfile import ZipFile

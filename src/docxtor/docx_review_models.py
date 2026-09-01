@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from .docx_models import AddressableComment
+from .docx_models import AddressableComment, AddressableSpan
 from .docx_revisions import Revision
 
 
@@ -54,6 +54,49 @@ class ReviewMarkupInventory:
     @property
     def has_comments(self) -> bool:
         return bool(self.comments)
+
+
+@dataclass(frozen=True)
+class ReviewParagraph:
+    """Domain-blind paragraph projection in canonical DOCX address space."""
+
+    locator: str
+    paragraph_index: int | None
+    text: str
+    part_name: str
+    style_name: str | None
+    opaque_ranges: tuple[tuple[int, int], ...] = ()
+
+
+@dataclass(frozen=True)
+class ReviewDocumentProjection:
+    """Physical review-document facts safe for policy layers to consume."""
+
+    paragraphs: tuple[ReviewParagraph, ...]
+    spans: tuple[AddressableSpan, ...]
+    comments: tuple[AddressableComment, ...]
+    markup: ReviewMarkupInventory
+
+    def paragraph(self, locator: str) -> ReviewParagraph | None:
+        return next((item for item in self.paragraphs if item.locator == locator), None)
+
+
+@dataclass(frozen=True)
+class ReviewPurityInspection:
+    """Package-level review residue; marker values are supplied by the caller."""
+
+    revision_parts: tuple[str, ...]
+    comment_parts: tuple[str, ...]
+    comment_count: int
+    marker_parts: tuple[str, ...]
+    coverage: ReviewCoverage
+    diagnostics: tuple[ReviewDiagnostic, ...] = ()
+
+    @property
+    def is_pure(self) -> bool:
+        return not (
+            self.revision_parts or self.comment_parts or self.comment_count or self.marker_parts
+        ) and self.coverage is ReviewCoverage.COMPLETE
 
 
 @dataclass(frozen=True)

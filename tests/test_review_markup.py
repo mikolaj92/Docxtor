@@ -16,6 +16,7 @@ from docxtor.docx_comment_mutations import (
     remove_comments,
 )
 from docxtor.docx_publish import PublishError, publish_docx
+from docxtor import DocxDocument, inspect_review_purity
 from docxtor.docx_review_inventory import inventory_review_markup
 from docxtor.docx_review_models import OperationStatus, ReviewCoverage
 
@@ -102,6 +103,34 @@ def test_inventory_is_incomplete_for_malformed_story_xml() -> None:
     inventory = inventory_review_markup(output.getvalue())
     assert inventory.coverage is ReviewCoverage.INCOMPLETE
     assert inventory.diagnostics
+
+
+def test_review_projection_owns_paragraph_addressing_and_physical_facts() -> None:
+    projection = DocxDocument.open_bytes(_docx("Hello world")).review_projection()
+
+    paragraph = projection.paragraph("body:p:0")
+    assert paragraph is not None
+    assert paragraph.text == "Hello world"
+    assert paragraph.paragraph_index == 0
+    assert paragraph.part_name == "body"
+    assert paragraph.opaque_ranges == ()
+    assert projection.markup.coverage is ReviewCoverage.COMPLETE
+
+
+def test_review_purity_reports_revisions_comments_and_caller_markers() -> None:
+    source = _docx("[SUGGESTION: neutral]")
+    added = add_comment(
+        source,
+        CommentRange("body:p:0", 0, 11, "[SUGGESTION"),
+        "Note",
+        CommentAuthor("Reviewer"),
+    )
+    inspection = inspect_review_purity(added.data, markers=(b"[SUGGESTION",))
+
+    assert inspection.comment_count == 1
+    assert "word/comments.xml" in inspection.comment_parts
+    assert "word/document.xml" in inspection.marker_parts
+    assert not inspection.is_pure
 
 
 def test_batch_failure_does_not_return_partial_document() -> None:

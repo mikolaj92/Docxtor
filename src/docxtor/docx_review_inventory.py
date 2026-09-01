@@ -13,6 +13,7 @@ from .docx_review_models import (
     ReviewCoverage,
     ReviewDiagnostic,
     ReviewMarkupInventory,
+    ReviewPurityInspection,
 )
 from .docx_revisions import RevisionOperationError, inventory_revisions_bytes
 from .docx_stories import index_stories
@@ -54,6 +55,55 @@ def inventory_review_markup(data: bytes) -> ReviewMarkupInventory:
         comment_revision_associations=_comment_revision_associations(entries, comments),
         coverage=ReviewCoverage.INCOMPLETE if diagnostics else ReviewCoverage.COMPLETE,
         diagnostics=tuple(diagnostics),
+    )
+
+
+def inspect_review_purity(
+    data: bytes,
+    *,
+    markers: tuple[bytes, ...] = (),
+) -> ReviewPurityInspection:
+    """Inspect physical review residue without assigning review semantics.
+
+    ``markers`` lets a policy layer request literal package probes (for example a
+    portable annotation prefix) without opening or traversing the OPC package.
+    """
+    inventory = inventory_review_markup(data)
+    try:
+        entries = read_package_entries(data)
+    except PackageError:
+        return ReviewPurityInspection(
+            revision_parts=(),
+            comment_parts=(),
+            comment_count=len(inventory.comments),
+            marker_parts=(),
+            coverage=ReviewCoverage.INCOMPLETE,
+            diagnostics=inventory.diagnostics,
+        )
+    revision_parts = tuple(sorted({item.part_name for item in inventory.revisions}))
+    comment_parts = tuple(
+        sorted(
+            entry.name
+            for entry in entries
+            if entry.name.startswith("word/")
+            and (
+                entry.name == "word/comments.xml"
+                or entry.name.startswith("word/commentsExtended")
+                or entry.name.startswith("word/commentsIds")
+                or entry.name == "word/people.xml"
+            )
+        )
+    )
+    marker_parts = tuple(
+        sorted(entry.name for entry in entries if any(marker in entry.data for marker in markers))
+    )
+    return ReviewPurityInspection(
+        revision_parts=revision_parts,
+        comment_parts=comment_parts,
+        comment_count=len(inventory.comments),
+        marker_parts=marker_parts,
+        coverage=inventory.coverage,
+        diagnostics=inventory.diagnostics,
     )
 
 

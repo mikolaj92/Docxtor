@@ -18,6 +18,7 @@ from docxtor import (
     SurfaceKind,
     apply_docx_transaction,
     apply_package_transaction,
+    remove_review_comment_parts,
 )
 
 
@@ -155,6 +156,22 @@ def test_combined_transaction_applies_strict_text_and_package_surface(tmp_path: 
     reopened = DocxDocument.open_bytes(receipt.data)
     assert "Masked person" in reopened.texts
     assert "Anonymous" in {item.value for item in reopened.inventory().surfaces}
+
+
+def test_remove_review_comment_parts_cleans_opc_graph(tmp_path: Path) -> None:
+    document = PyDocxDocument()
+    paragraph = document.add_paragraph("Commented")
+    document.add_comment(paragraph.runs, text="Note", author="Reviewer")
+    buffer = BytesIO()
+    document.save(buffer)
+
+    receipt = remove_review_comment_parts(buffer.getvalue())
+
+    assert "word/comments.xml" not in {item.name for item in receipt.inventory_after.parts}
+    assert not any(
+        item.target_part == "word/comments.xml"
+        for item in receipt.inventory_after.graph.relationships
+    )
 
 
 def test_unknown_target_and_incomplete_source_fail_closed(tmp_path: Path) -> None:

@@ -50,7 +50,11 @@ from .docx_mutations import (
 )
 from .docx_publish import PublishReceipt, publish_docx
 from .docx_review_inventory import inventory_review_markup
-from .docx_review_models import ReviewMarkupInventory
+from .docx_review_models import (
+    ReviewDocumentProjection,
+    ReviewMarkupInventory,
+    ReviewParagraph,
+)
 from .docx_review_transaction import ReviewCommand, apply_review_batch
 from .docx_stories import _ParaRef, index_stories
 from .docx_units import _paragraph_spans, _paragraph_visible_text, _replace_plain_range
@@ -77,6 +81,17 @@ __all__ = [
     "paragraph_to_inline_segments",
     "rebuild_paragraph_from_inline",
 ]
+
+
+def _opaque_ranges(paragraph: Paragraph) -> tuple[tuple[int, int], ...]:
+    offset = 0
+    ranges: list[tuple[int, int]] = []
+    for segment in paragraph_to_inline_segments(paragraph):
+        end = offset + len(segment.text)
+        if segment.kind == "opaque" and end > offset:
+            ranges.append((offset, end))
+        offset = end
+    return tuple(ranges)
 
 
 class DocxDocument:
@@ -410,6 +425,30 @@ class DocxDocument:
 
     def review_inventory(self) -> ReviewMarkupInventory:
         return inventory_review_markup(self.to_bytes())
+
+    def review_projection(self) -> ReviewDocumentProjection:
+        """Return typed physical facts needed to parse and address a review document."""
+        paragraphs: list[ReviewParagraph] = []
+        refs_by_locator = {item.container_id: item for item in self._refs}
+        for index, locator, paragraph in self.get_indexed_paragraphs():
+            ref = refs_by_locator.get(locator)
+            paragraphs.append(
+                ReviewParagraph(
+                    locator=locator,
+                    paragraph_index=index,
+                    text=_paragraph_visible_text(paragraph),
+                    part_name=ref.part_name if ref is not None else "body",
+                    style_name=paragraph.style.name if paragraph.style is not None else None,
+                    opaque_ranges=_opaque_ranges(paragraph),
+                )
+            )
+        markup = self.review_inventory()
+        return ReviewDocumentProjection(
+            paragraphs=tuple(paragraphs),
+            spans=self.spans,
+            comments=markup.comments,
+            markup=markup,
+        )
 
     def facts(self) -> Any:
         from .docx_facts import docx_facts
