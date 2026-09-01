@@ -1,4 +1,4 @@
-__version__ = "0.8.19"
+__version__ = "0.8.20"
 
 from .common import (
     DOCX_MIME,
@@ -289,8 +289,12 @@ __all__ = [
     "DocxCreationError",
     "create_docx_from_paragraphs",
     "write_docx_from_paragraphs",
+    "DocumentPackageKind",
+    "DocxAdmissionInspection",
+    "inspect_docx_admission",
 ]
 
+from .docx_admission import DocumentPackageKind, DocxAdmissionInspection, inspect_docx_admission
 from .docx_combined_transaction import CombinedTransactionReceipt, apply_docx_transaction
 from .docx_create import DocxCreationError, create_docx_from_paragraphs, write_docx_from_paragraphs
 from .docx_inventory import SURFACE_LOCATOR_VERSION, PackageGraph, PackageRelationship
