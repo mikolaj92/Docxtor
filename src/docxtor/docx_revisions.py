@@ -269,7 +269,8 @@ def _unsafe_revision_detail(element: etree._Element, kind: str) -> str | None:
         for descendant in element.iterdescendants():
             if _split_tag(descendant.tag)[1] in _BLOCK_REVISION_CHILDREN:
                 return f"{kind} contains block content"
-    return None
+        return None
+    return f"unsupported revision kind {kind}"
 
 
 def _direct_revision_text(element: etree._Element) -> str:
