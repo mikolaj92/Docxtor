@@ -35,6 +35,7 @@ from .docx_inline import (
     rebuild_paragraph_from_inline,
 )
 from .docx_inventory import DocxInventory, inventory_docx
+from .docx_locators import DocxLocatorOperations
 from .docx_models import (
     AddressableComment,
     AddressableSpan,
@@ -81,7 +82,7 @@ __all__ = [
 ]
 
 
-class DocxDocument:
+class DocxDocument(DocxLocatorOperations):
     """DOCX editing surface backed by python-docx."""
 
     def __init__(

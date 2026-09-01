@@ -143,6 +143,30 @@ authorship attributes, and thread sidecar parts (`commentsExtended.xml`,
 not become user-authored segments. Unknown comment targets fail before any edit.
 ReviewKit remains responsible for review semantics.
 
+### Typed paragraph and run locators
+
+Consumers that need paragraph/run identity and values can stay independent of
+`python-docx`. `paragraph_resolutions` includes empty paragraphs in stable global
+order across body, table, header, and footer stories. Typed lookup returns
+`None` for an unknown paragraph or run coordinate.
+
+```python
+from docxtor import DocxDocument, ParagraphLocator, RunLocator
+
+document = DocxDocument.open("input.docx")
+for paragraph in document.paragraph_resolutions:
+    print(paragraph.identity.container_id, paragraph.paragraph_index, paragraph.value)
+    for run in paragraph.runs:
+        print(run.identity.run_index, run.value)
+
+body = ParagraphLocator("body:p:0")
+paragraph = document.resolve_paragraph_locator(body)
+run = document.resolve_run_locator(RunLocator(body, 0))
+```
+
+The resolution DTOs contain only typed identity/value data. Physical traversal
+and `python-docx` objects remain internal to Docxtor.
+
 ## Type Detection
 
 ```python
