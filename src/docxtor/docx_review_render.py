@@ -46,9 +46,16 @@ class PhysicalReviewComment:
 
 
 @dataclass(frozen=True)
+class PhysicalReviewNote:
+    text: str
+    comment_text: str | None = None
+
+
+@dataclass(frozen=True)
 class PhysicalReviewPlan:
     edits: tuple[PhysicalReviewEdit, ...] = ()
     comments: tuple[PhysicalReviewComment, ...] = ()
+    notes: tuple[PhysicalReviewNote, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -136,6 +143,15 @@ def render_physical_review(
             _rebuild(paragraph, pieces, reviewer)
         for anchor, edit in deferred:
             next_revision = _insert_block(doc, anchor, edit, reviewer, next_revision)
+        for note in plan.notes:
+            paragraph = doc.add_paragraph(note.text)
+            if note.comment_text:
+                pieces = [
+                    _Piece("text", segment.text, segment.rpr, segment.element)
+                    for segment in paragraph_to_inline_segments(paragraph)
+                ]
+                _mark_comment(doc, pieces, PhysicalReviewComment("", note.comment_text), reviewer)
+                _rebuild(paragraph, pieces, reviewer)
         out = BytesIO()
         doc.save(out)
         rendered = out.getvalue()
