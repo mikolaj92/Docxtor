@@ -892,6 +892,16 @@ def _features(
                     NamedFact("comment", part, fid, container, element.get(f"{{{_W_NS}}}id"), text)
                 )
             if local in {"footnote", "endnote", "footnoteReference", "endnoteReference"}:
+                note_text = "".join(
+                    (node.text or "")
+                    if etree.QName(node).localname in {"t", "delText"}
+                    else "\t"
+                    if etree.QName(node).localname == "tab"
+                    else "\n"
+                    if etree.QName(node).localname in {"br", "cr"}
+                    else ""
+                    for node in element.iter()
+                )
                 out["note"].append(
                     NamedFact(
                         (
@@ -903,7 +913,7 @@ def _features(
                         fid,
                         container,
                         element.get(f"{{{_W_NS}}}id"),
-                        text,
+                        note_text,
                     )
                 )
             if local == "txbxContent":
