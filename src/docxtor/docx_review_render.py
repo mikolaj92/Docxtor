@@ -209,21 +209,19 @@ def _apply_edit(
     ):
         raise PhysicalReviewRenderError(f"review range crosses opaque content at {edit.locator}")
     repl = []
-    if edit.operation in {"delete", "replace"}:
+    if edit.operation in {"delete", "replace"} and tracked:
         repl.extend(
             _Piece(
-                "del" if tracked else "text",
+                "del",
                 p.text,
                 deepcopy(p.rpr),
                 action_id=edit.action_id,
-                revision_id=next_id if tracked else None,
+                revision_id=next_id,
             )
             for p in chosen
         )
-        if tracked and chosen:
+        if chosen:
             next_id += 1
-        if not tracked and edit.operation == "delete":
-            repl = []
     if edit.operation in {"insert", "replace"} and edit.replacement_text:
         repl.append(
             _Piece(
@@ -235,9 +233,10 @@ def _apply_edit(
             )
         )
         next_id += 1 if tracked else 0
-    pieces[start:end] = (
-        repl if edit.operation != "insert" else pieces[start:start] + repl + pieces[start:]
-    )
+    if edit.operation == "insert":
+        pieces[start:start] = repl
+    else:
+        pieces[start:end] = repl
     return pieces, next_id
 
 
