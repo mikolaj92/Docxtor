@@ -1,4 +1,4 @@
-__version__ = "0.8.22"
+__version__ = "0.9.0"
 
 from .common import (
     DOCX_MIME,
@@ -292,6 +292,10 @@ __all__ = [
     "DocumentPackageKind",
     "DocxAdmissionInspection",
     "inspect_docx_admission",
+    "DocxReviewProjection",
+    "ReviewNoteProjection",
+    "ReviewParagraphProjection",
+    "project_docx_for_review",
 ]
 
 from .docx_admission import DocumentPackageKind, DocxAdmissionInspection, inspect_docx_admission
@@ -319,4 +323,10 @@ from .docx_publication_marks import (
     remove_body_appendix,
     stamp_document_mark,
     write_publication_bytes,
+)
+from .docx_review_projection import (
+    DocxReviewProjection,
+    ReviewNoteProjection,
+    ReviewParagraphProjection,
+    project_docx_for_review,
 )
