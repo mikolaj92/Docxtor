@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .docx_comment_mutations import CommentAuthor, CommentRange, add_comment
+from .docx_comment_mutations import CommentAuthor, add_paragraph_comment
 from .docx_package import normalize_docx_timestamps, restore_semantically_unchanged_xml_parts
 from .docx_publish import publish_docx
 from .docx_revision_mutations import (
@@ -89,9 +89,9 @@ def render_physical_review(
             else:
                 raise PhysicalReviewRenderError(f"unsupported physical revision kind: {edit.kind}")
         for comment in plan.comments:
-            data = add_comment(
+            data = add_paragraph_comment(
                 data,
-                CommentRange(comment.locator, comment.start_offset, comment.end_offset),
+                comment.locator,
                 comment.text,
                 CommentAuthor(reviewer.author, reviewer.initials, reviewer.date),
             ).data
