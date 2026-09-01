@@ -66,9 +66,9 @@ def project_docx_for_review(source: str | Path | bytes) -> DocxReviewProjection:
             )
         )
     notes = tuple(
-        ReviewNoteProjection(str(item.fact_id), item.kind, item.value or "")
+        ReviewNoteProjection(item.value or item.fact_id, item.kind.split("_", 1)[0], item.target or "")
         for item in facts.notes
-        if item.kind in {"footnote", "endnote"}
+        if item.kind in {"footnote_user", "endnote_user"}
     )
     table_ids = {
         fact.coordinate.table_index
