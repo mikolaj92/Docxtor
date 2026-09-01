@@ -207,7 +207,9 @@ def _apply_edit(
     if edit.end_offset > edit.start_offset and (
         not chosen or any(p.kind != "text" for p in chosen)
     ):
-        raise PhysicalReviewRenderError(f"review range crosses opaque content at {edit.locator}")
+        raise PhysicalReviewRenderError(
+            f"review action {edit.action_id!r} crosses opaque content at {edit.locator}"
+        )
     repl = []
     if edit.operation in {"delete", "replace"} and tracked:
         repl.extend(
@@ -240,13 +242,15 @@ def _apply_edit(
     return pieces, next_id
 
 
+def _coordinate_length(piece: _Piece) -> int:
+    return 0 if piece.kind == "ins" else len(piece.text)
+
+
 def _split_pieces(pieces: list[_Piece], offset: int) -> list[_Piece]:
     pos = 0
     out = []
     for piece in pieces:
-        length = len(piece.text) if piece.kind != "del" else len(piece.text)
-        if piece.kind == "opaque":
-            length = len(piece.text)
+        length = _coordinate_length(piece)
         if 0 < offset - pos < length and piece.kind == "text":
             cut = offset - pos
             out.extend(
@@ -263,10 +267,13 @@ def _split_pieces(pieces: list[_Piece], offset: int) -> list[_Piece]:
 
 def _piece_index(pieces: list[_Piece], offset: int) -> int:
     pos = 0
-    for i, p in enumerate(pieces):
-        if pos >= offset:
+    for i, piece in enumerate(pieces):
+        length = _coordinate_length(piece)
+        if pos == offset and length > 0:
             return i
-        pos += len(p.text)
+        if pos + length > offset:
+            return i
+        pos += length
     return len(pieces)
 
 
@@ -379,7 +386,17 @@ def _insert_block(
         rpr.append(_revision(_Piece("ins", "", revision_id=next_id), reviewer))
         ppr.append(rpr)
         p.append(ppr)
-        p.append(_revision(_Piece("ins", line, revision_id=next_id), reviewer))
+        content = _revision(_Piece("ins", line, revision_id=next_id), reviewer)
+        if edit.comment_text:
+            comment_id = _create_comment(doc, edit.comment_text, reviewer)
+            p.append(_marker("w:commentRangeStart", comment_id))
+            p.append(content)
+            p.append(_marker("w:commentRangeEnd", comment_id))
+            reference = OxmlElement("w:r")
+            reference.append(_marker("w:commentReference", comment_id))
+            p.append(reference)
+        else:
+            p.append(content)
         elements.append(p)
         next_id += 1
     ref = anchor._p
