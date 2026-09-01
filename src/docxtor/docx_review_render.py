@@ -97,7 +97,7 @@ def render_physical_review(
             ).data
     except Exception as exc:
         raise PhysicalReviewRenderError(str(exc)) from exc
-    target = publish_docx(data, output).path
+    target = publish_docx(data, output).destination
     if not isinstance(source, bytes):
         restore_semantically_unchanged_xml_parts(source, target)
     normalize_docx_timestamps(target)
