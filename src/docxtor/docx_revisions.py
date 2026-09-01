@@ -617,6 +617,10 @@ def _merge_paragraph_into_next(mark: etree._Element) -> bool:
     parent = block.getparent()
     if parent is None:
         return False
+    next_block = _paragraph_block(next_paragraph)
+    if next_block is not next_paragraph and next_block.getparent() is parent:
+        next_block.addprevious(next_paragraph)
+        parent.remove(next_block)
     parent.remove(block)
     return True
 
