@@ -48,6 +48,7 @@ def inventory_review_markup(data: bytes) -> ReviewMarkupInventory:
     except (KeyError, ValueError, TypeError, etree.XMLSyntaxError) as exc:
         diagnostics.append(ReviewDiagnostic("comments_unreadable", str(exc), "word/comments.xml"))
     _validate_comment_markers(entries, comments, diagnostics)
+    _validate_comment_threads(entries, diagnostics)
     return ReviewMarkupInventory(
         revisions=revision_inventory.revisions,
         comments=comments,
@@ -201,3 +202,52 @@ def _attr(element: etree._Element, local: str) -> str | None:
 
 def _local(tag: object) -> str:
     return tag.rsplit("}", 1)[-1] if isinstance(tag, str) else ""
+
+
+def _validate_comment_threads(
+    entries: tuple[Any, ...], diagnostics: list[ReviewDiagnostic]
+) -> None:
+    comments = next((entry for entry in entries if entry.name == "word/comments.xml"), None)
+    extended = next((entry for entry in entries if entry.name == "word/commentsExtended.xml"), None)
+    if comments is None:
+        return
+    root = parse_package_xml(comments.data, part_name=comments.name)
+    para_ids = [
+        value
+        for paragraph in root.iter()
+        if _local(paragraph.tag) == "p"
+        for name, value in paragraph.attrib.items()
+        if _local(name) == "paraId"
+    ]
+    if len(set(para_ids)) != len(para_ids):
+        diagnostics.append(
+            ReviewDiagnostic(
+                "duplicate_comment_paragraph_id", "comment paraId is not unique", comments.name
+            )
+        )
+    if extended is None:
+        return
+    extended_root = parse_package_xml(extended.data, part_name=extended.name)
+    known = set(para_ids)
+    seen: set[str] = set()
+    for element in extended_root.iter():
+        if _local(element.tag) != "commentEx":
+            continue
+        attrs = {_local(name): value for name, value in element.attrib.items()}
+        para_id = attrs.get("paraId")
+        parent_id = attrs.get("paraIdParent")
+        if (
+            para_id is None
+            or para_id in seen
+            or para_id not in known
+            or (parent_id is not None and parent_id not in known)
+        ):
+            diagnostics.append(
+                ReviewDiagnostic(
+                    "invalid_comment_thread",
+                    "comment thread identity is duplicate or unresolved",
+                    extended.name,
+                )
+            )
+            return
+        seen.add(para_id)
