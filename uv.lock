@@ -170,7 +170,7 @@ wheels = [
 
 [[package]]
 name = "docxtor"
-version = "0.11.1"
+version = "0.11.2"
 source = { editable = "." }
 dependencies = [
     { name = "pymupdf" },
@@ -192,7 +192,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "python-docx", specifier = ">=1.1.2" },
     { name = "reportlab", marker = "extra == 'dev'", specifier = ">=4.2.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11.1" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11.2" },
 ]
 provides-extras = ["dev"]
 
