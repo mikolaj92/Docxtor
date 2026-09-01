@@ -136,3 +136,18 @@ def test_internal_relationships_are_preserve_only(tmp_path: Path) -> None:
 
     assert internal
     assert {surface.capability for surface in internal} == {SurfaceCapability.PRESERVE_ONLY}
+
+
+def test_inventory_exposes_html_text_surface(tmp_path: Path) -> None:
+    path = tmp_path / "text-part.docx"
+    _write_docx(path)
+    buffer = BytesIO()
+    with ZipFile(path) as source, ZipFile(buffer, "w", ZIP_DEFLATED) as output:
+        for item in source.infolist():
+            output.writestr(item, source.read(item.filename))
+        output.writestr("word/afchunk.html", b'<a href="mailto:a@example.com">x</a>')
+    path.write_bytes(buffer.getvalue())
+    inventory = DocxDocument.open(path).inventory()
+    surface = next(item for item in inventory.surfaces if item.part_name == "word/afchunk.html")
+    assert surface.role == "text_part_content"
+    assert "mailto:a@example.com" in surface.value

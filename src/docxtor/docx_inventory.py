@@ -121,6 +121,7 @@ _XML_CONTENT_TYPES = {
 }
 _XML_SUFFIXES = ("+xml", "/xml")
 _KNOWN_BINARY_PREFIXES = ("image/", "audio/", "video/")
+_TEXT_PART_SUFFIXES = (".html", ".htm", ".xhtml", ".mht", ".txt", ".css")
 _SKIP_XML_LOCAL_NAMES = {
     # Namespace compatibility declarations are syntax, not carried document values.
     "Ignorable",
@@ -156,7 +157,8 @@ def inventory_docx(data: bytes) -> DocxInventory:
             content_type = _content_type_for(name, content_types)
             is_relationships = name.endswith(".rels")
             is_xml = is_relationships or _is_xml_part(content_type, payload)
-            understood = is_xml or content_type.startswith(_KNOWN_BINARY_PREFIXES)
+            is_text_part = name.lower().endswith(_TEXT_PART_SUFFIXES)
+            understood = is_xml or is_text_part or content_type.startswith(_KNOWN_BINARY_PREFIXES)
             error: str | None = None
 
             if is_xml:
@@ -170,6 +172,26 @@ def inventory_docx(data: bytes) -> DocxInventory:
                         surfaces.extend(_relationship_surfaces(name, root))
                     elif name != _CONTENT_TYPES_PART:
                         surfaces.extend(_xml_surfaces(name, root))
+            elif is_text_part:
+                try:
+                    value = payload.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    error = type(exc).__name__
+                    unreadable_parts.append(name)
+                else:
+                    surfaces.append(
+                        _surface(
+                            surface_id=f"text-part:{name}",
+                            kind=SurfaceKind.XML_TEXT,
+                            part_name=name,
+                            value=value,
+                            visibility=SurfaceVisibility.HIDDEN,
+                            capability=SurfaceCapability.VALUE_REPLACE,
+                            xml_path="/",
+                            xml_name="content",
+                            role="text_part_content",
+                        )
+                    )
             elif not understood:
                 unknown_parts.append(name)
 
