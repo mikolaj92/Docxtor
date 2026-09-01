@@ -1,4 +1,4 @@
-__version__ = "0.11.2"
+__version__ = "0.12.0"
 
 from .common import (
     DOCX_MIME,
@@ -299,6 +299,7 @@ __all__ = [
     "ReviewParagraphProjection",
     "project_docx_for_review",
     "PhysicalReviewComment",
+    "PhysicalReviewNote",
     "PhysicalReviewPlan",
     "PhysicalReviewRenderError",
     "PhysicalReviewer",
@@ -343,6 +344,7 @@ from .docx_review_render import (
     PhysicalReviewComment,
     PhysicalReviewEdit,
     PhysicalReviewer,
+    PhysicalReviewNote,
     PhysicalReviewPlan,
     PhysicalReviewRenderError,
     render_physical_clean,
