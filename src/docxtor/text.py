@@ -65,7 +65,7 @@ def _decode_text(data: bytes) -> str:
             return data.decode(encoding)
         except UnicodeDecodeError:
             continue
-    raise DocumentError("Nie udało się odczytać pliku tekstowego.")
+    raise DocumentError("failed to read text file")
 
 
 def _output_extension(filename: str) -> str:

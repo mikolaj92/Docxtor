@@ -31,7 +31,7 @@ def detect_document_type(
     data: bytes,
 ) -> DetectedDocumentType:
     if not data:
-        raise DocumentError("Pusty plik.")
+        raise DocumentError("empty file")
 
     suffix = Path(filename or "").suffix.lower()
     mime = _normalize_mime(content_type)
@@ -58,7 +58,7 @@ def detect_document_type(
     if _looks_like_text(data):
         return DetectedDocumentType(filename, DocumentKind.TEXT, ".txt", TXT_MIME, "content")
 
-    raise DocumentError("Nieobsługiwany typ dokumentu.")
+    raise DocumentError("unsupported document type")
 
 
 def _normalize_mime(content_type: str) -> str:

@@ -33,7 +33,7 @@ class DocxEngine:
         try:
             return DocxDocument.open_bytes(data, filename=detection.filename or "document.docx")
         except Exception as error:
-            raise DocumentError("Nie udało się odczytać DOCX.") from error
+            raise DocumentError("failed to read DOCX") from error
 
 
 class PdfEngine:

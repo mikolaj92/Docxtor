@@ -1,45 +1,43 @@
 {
   "paths": [
-    "src/docxtor",
-    "pyproject.toml",
-    "src/docxtor/__init__.py",
-    "src/docxtor/common.py",
-    "src/docxtor/detection.py",
-    "src/docxtor/docx.py",
-    "src/docxtor/engines.py",
-    "src/docxtor/loader.py",
-    "src/docxtor/pdf.py",
-    "src/docxtor/text.py",
     "tests/test_documents.py",
-    "tests/test_docx.py",
-    "src",
-    "tests",
-    "README.md"
+    "src/docxtor/docx_review_projection.py",
+    "src/docxtor",
+    "src/docxtor/engines.py",
+    "src/docxtor/pdf.py",
+    "src/docxtor/docx_review_inventory.py",
+    "src/docxtor/docx_review_models.py",
+    "src/docxtor/docx_review_render.py",
+    "src/docxtor/docx_review_transaction.py",
+    "src/docxtor/docx_publication_marks.py",
+    "tests/test_comments.py",
+    "tests/test_docx_review_projection.py",
+    "tests/test_review_markup.py",
+    "tests/test_publication_marks.py"
   ],
-  "source": "existing",
+  "source": "deterministic",
   "seed_paths": [
-    "src/docxtor",
-    "pyproject.toml",
-    "src/docxtor/__init__.py",
-    "src/docxtor/common.py",
-    "src/docxtor/detection.py",
-    "src/docxtor/docx.py",
-    "src/docxtor/engines.py",
-    "src/docxtor/loader.py",
-    "src/docxtor/pdf.py",
-    "src/docxtor/text.py",
     "tests/test_documents.py",
-    "tests/test_docx.py",
-    "src",
-    "tests",
-    "README.md"
+    "engines/text/pdf",
+    "src/docxtor"
   ],
-  "matched_tokens": [],
+  "matched_tokens": [
+    "engines",
+    "pdf",
+    "public",
+    "docxtor",
+    "test_documents",
+    "Docxtor",
+    "review"
+  ],
   "notes": [
-    "Existing localization evidence."
+    "Deterministic fallback paths only (no embeddings).",
+    "Empty path list fails closed — run_agent must not start.",
+    "Repo tree entries considered: 63."
   ],
-  "worktree": "/Users/mini-m4-main/.lokay/worktrees/mikolaj92__Docxtor/ai__fix__32-make-nested-revision-and-hyperlink-text-a98e436a",
+  "worktree": "/Users/mini-m4-0/.lokay/worktrees/mikolaj92__Docxtor/ai__fix__164-cleanup-angielskie-komunikaty-documenter-7163f646",
   "wrote": false,
   "localize_rel": ".lokay/localize.json",
-  "semantic": null
+  "semantic": null,
+  "issue": 164
 }

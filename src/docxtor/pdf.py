@@ -66,10 +66,10 @@ class PdfDocument:
             pdf = fitz.open(stream=data, filetype="pdf")
             pages = [_page_text_with_rects(page)[0] for page in pdf]
         except Exception as error:
-            raise DocumentError("Nie udało się odczytać PDF.") from error
+            raise DocumentError("failed to read PDF") from error
 
         if not any(page.strip() for page in pages):
-            raise DocumentError("PDF nie ma warstwy tekstowej. Ten plik wymaga OCR.")
+            raise DocumentError("PDF has no text layer. This file requires OCR.")
         return cls(
             filename=filename,
             pages=list(pages),
@@ -104,7 +104,7 @@ class PdfDocument:
         if not self.source_bytes:
             return _render_text_pdf(self.pages)
         if len(self.pages) != len(source_pages):
-            raise DocumentError("Nie udało się zapisać PDF: zmieniła się liczba stron.")
+            raise DocumentError("failed to write PDF: page count changed")
 
         try:
             # Prefer layout-preserving edits on the original pages:
@@ -131,7 +131,7 @@ class PdfDocument:
         except DocumentError:
             raise
         except Exception as error:
-            raise DocumentError("Nie udało się zapisać PDF.") from error
+            raise DocumentError("failed to write PDF") from error
 
     def to_document_bytes(self) -> DocumentBytes:
         return DocumentBytes(
