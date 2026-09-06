@@ -1,35 +1,32 @@
 # Approach plan
 
-<!-- lokay-approach source=deterministic repo=mikolaj92/Docxtor issue=32 -->
+<!-- lokay-approach source=deterministic repo=mikolaj92/Docxtor issue=164 -->
 
 Repository: `mikolaj92/Docxtor`  
-Issue: #32 — Make nested revision and hyperlink text write-addressable without unwrapping OOXML
+Issue: #164 — Cleanup: angielskie komunikaty DocumentError (engines/text/pdf)
 
 ## Goal
 
-- mikolaj92/Temida#5076
+Replace Polish user strings in the library core with stable English errors (one locale in the package).
 
 ## Files likely touched
 
-- (infer from repo inspection)
+- `tests/test_documents.py`
 
 ## Test plan
 
-- Text inside `w:ins`, `w:del` / `w:delText`, and inline `w:hyperlink` is returned with a stable container/span identity and a typed mechanical role.
-- Partial and whole replacements address the exact extracted characters and preserve surrounding wrapper elements, `w:rPr`, revision author/date/ID, hyperlink anchor/relationship, and document order.
-- Internal table-of-contents hyperlinks remain functional after replacing their display text.
-- The contract works across supported body, table, header, footer, and text-box story parts.
-- Unsupported structural revision forms fail closed without writing a partial output.
-- Public API documentation and model-only fixtures cover extraction, replacement, round-trip structure, and untouched-document behavior.
-- No review, anonymization, Dike, Posejdon, or Polish-law semantics enter Docxtor.
+- No Polish `Nie …` strings under src/docxtor/
+- Tests that assert message text updated
+- Behavior (exception type / chaining) unchanged
+- `uv run pytest -q tests/test_documents.py`
+- `rg -n 'Nie ' src/docxtor` → empty
 
 ## Non-goals
 
-- (none stated)
+- i18n framework; Temida UI copy.
 
 ## Notes
 
 - Trust intentional issue; this plan is evidence for later review, not a human gate.
 - Coding agent may refine details but should stay on the stated goal and non-goals.
-- Collector boundary: if implementation introduces unbounded collection, ship only a bounded collector patch that starts durably in the background after merge. The coding agent and mill must not populate data or wait for collection to finish.
-- No explicit file paths in issue; infer from repo inspection.
+- Collector boundary: if implementation introduces unbounded collection, ship only a bounded collector patch that starts durably in the background after merge. The coding agent and lokay must not populate data or wait for collection to finish.

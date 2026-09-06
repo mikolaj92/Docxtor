@@ -146,8 +146,25 @@ def test_detects_pdf_from_bytes_before_metadata() -> None:
 
 
 def test_rejects_unknown_binary_document() -> None:
-    with pytest.raises(DocumentError, match="Nieobsługiwany typ dokumentu"):
+    with pytest.raises(DocumentError, match="unsupported document type"):
         load_document("upload.bin", "application/octet-stream", b"\x00\x01\x02\x03")
+
+
+def test_rejects_empty_document() -> None:
+    with pytest.raises(DocumentError, match="empty file"):
+        load_document("upload.bin", "application/octet-stream", b"")
+
+
+def test_unreadable_docx_raises_document_error() -> None:
+    with pytest.raises(DocumentError, match="failed to read DOCX") as excinfo:
+        load_document("bad.docx", DOCX_MIME, b"not-a-docx-package")
+    assert excinfo.value.__cause__ is not None
+
+
+def test_unreadable_pdf_raises_document_error() -> None:
+    with pytest.raises(DocumentError, match="failed to read PDF") as excinfo:
+        load_document("bad.pdf", PDF_MIME, b"%PDF-not-a-real-file")
+    assert excinfo.value.__cause__ is not None
 
 
 def test_load_docx_document_and_write_docx_bytes(tmp_path: Path) -> None:
@@ -389,8 +406,15 @@ def test_pdf_write_removes_deleted_text() -> None:
 
 
 def test_pdf_without_text_layer_requires_ocr() -> None:
-    with pytest.raises(DocumentError, match="wymaga OCR"):
+    with pytest.raises(DocumentError, match="requires OCR"):
         load_document("scan.pdf", PDF_MIME, _blank_pdf_bytes())
+
+
+def test_pdf_write_rejects_page_count_change() -> None:
+    document = load_document("input.pdf", PDF_MIME, _pdf_bytes("Hello"))
+    document.pages.append("extra page")
+    with pytest.raises(DocumentError, match="failed to write PDF: page count changed"):
+        document.to_bytes()
 
 
 def test_load_text_document_and_write_txt_bytes() -> None:
