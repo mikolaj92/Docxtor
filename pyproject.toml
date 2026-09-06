@@ -52,3 +52,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.lokay]
+# Same gate as .github/workflows/ci.yml: ruff then pytest.
+test = ["sh", "-c", "uv run --extra dev ruff check . && uv run --extra dev pytest -q"]
