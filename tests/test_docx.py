@@ -18,13 +18,15 @@ from docxtor import (
     RunLocator,
     RunResolution,
     SegmentReplacement,
+    paragraph_to_inline_segments,
+    rebuild_paragraph_from_inline,
+)
+from docxtor.docx_inline import (
     _insert_visible,
     _replace_visible_range,
     _rpr_at,
     _split_visible_offset,
     _visible_text,
-    paragraph_to_inline_segments,
-    rebuild_paragraph_from_inline,
 )
 
 
@@ -1063,3 +1065,15 @@ def test_unmerged_cells_keep_distinct_column_ids(tmp_path: Path) -> None:
     doc = DocxDocument.open(path)
     table_ids = [s.container_id for s in doc.segments if s.container_id.startswith("table:")]
     assert table_ids == ["table:0:r:0:c:0:p:0", "table:0:r:0:c:1:p:0"]
+
+
+def test_package_root_does_not_export_private_helpers() -> None:
+    """Root package surface must not re-export underscored mechanical helpers."""
+    import docxtor
+
+    leaked = sorted(
+        name
+        for name in (*docxtor.__all__, *dir(docxtor))
+        if name.startswith("_") and name != "__version__" and not name.startswith("__")
+    )
+    assert leaked == []
