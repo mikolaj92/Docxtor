@@ -1,29 +1,29 @@
 # Approach plan
 
-<!-- lokay-approach source=deterministic repo=mikolaj92/Docxtor issue=164 -->
+<!-- lokay-approach source=deterministic repo=mikolaj92/Docxtor issue=165 -->
 
 Repository: `mikolaj92/Docxtor`  
-Issue: #164 — Cleanup: angielskie komunikaty DocumentError (engines/text/pdf)
+Issue: #165 — Cleanup: AGENTS.md + [tool.lokay] test
 
 ## Goal
 
-Replace Polish user strings in the library core with stable English errors (one locale in the package).
+Add AGENTS.md (mechanical-DOCX-only law) and `[tool.lokay] test = ["uv", "run", "pytest", "-q"]` (or ruff+pytest) so Lokay does not skip Docxtor.
 
 ## Files likely touched
 
-- `tests/test_documents.py`
+- `AGENTS.md`
+- `pyproject.toml`
 
 ## Test plan
 
-- No Polish `Nie …` strings under src/docxtor/
-- Tests that assert message text updated
-- Behavior (exception type / chaining) unchanged
-- `uv run pytest -q tests/test_documents.py`
-- `rg -n 'Nie ' src/docxtor` → empty
+- AGENTS.md states: sole mechanical DOCX layer; no review/law semantics; one public API
+- `[tool.lokay] test` runs the same gate as CI (`.github/workflows/ci.yml`: ruff + pytest)
+- No product code change required
+- `uv run ruff check . && uv run pytest -q`
 
 ## Non-goals
 
-- i18n framework; Temida UI copy.
+- New features; expanding mypy file list (optional follow-up).
 
 ## Notes
 
