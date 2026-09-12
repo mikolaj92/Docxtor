@@ -30,6 +30,9 @@ class DocumentMark:
 class BodyAppendix:
     heading: str
     paragraphs: tuple[str, ...]
+    keep_paragraphs_together: bool = False
+    keep_heading_with_next: bool = False
+    keep_first_paragraph_with_next: bool = False
 
 
 def has_document_mark(source: str | Path | bytes, mark: DocumentMark) -> bool:
@@ -78,8 +81,14 @@ def append_body_appendix(source: str | Path | bytes, appendix: BodyAppendix) -> 
     document.add_paragraph("")
     heading = document.add_paragraph()
     heading.add_run(appendix.heading).bold = True
-    for text in appendix.paragraphs:
-        document.add_paragraph(text)
+    if appendix.keep_heading_with_next:
+        heading.paragraph_format.keep_with_next = True
+    for index, text in enumerate(appendix.paragraphs):
+        paragraph = document.add_paragraph(text)
+        if appendix.keep_paragraphs_together:
+            paragraph.paragraph_format.keep_together = True
+        if index == 0 and appendix.keep_first_paragraph_with_next:
+            paragraph.paragraph_format.keep_with_next = True
     data = _save(document)
     if not has_body_appendix(data, heading=appendix.heading):
         raise PublicationMarkError("DOCX did not retain the requested body appendix")

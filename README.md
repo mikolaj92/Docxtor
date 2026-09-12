@@ -301,6 +301,21 @@ Docxtor owns the physical OOXML mechanics for comments and tracked changes. It
 stays domain-blind: the caller supplies exact locators, ranges, author identity,
 and the accept/reject decision.
 
+For a whole-paragraph insertion rendered by `render_physical_review`, the new
+paragraph inherits the anchor's explicit paragraph style and direct paragraph
+formatting, except that direct paragraph `w:numPr`, section properties, identity
+attributes, and tracked property-change snapshots are not copied. Style-level
+numbering can still apply through the inherited paragraph style. The inserted
+text uses direct run properties from the first text run outside deleted or
+moved-from revisions that has no enabled direct `w:vanish` (`w:val="0"`,
+`"false"`, and `"off"` disable it; a missing value enables it). Visibility
+inherited through paragraph or character styles is not resolved. If that run
+has no effective properties after revision history is removed, paragraph-mark
+run properties are used when present; otherwise the paragraph style's character
+defaults apply. When the anchor has no explicit paragraph style, the inserted
+paragraph leaves its style unset so the document's default paragraph style
+applies.
+
 ```python
 from docxtor import (
     CommentAuthor,
