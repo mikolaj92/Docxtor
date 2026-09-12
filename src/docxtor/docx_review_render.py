@@ -367,11 +367,7 @@ def _run(text: str, rpr: Any | None, tag: str) -> Any:
 
 
 def _revision(piece: _Piece, reviewer: PhysicalReviewer) -> Any:
-    e = OxmlElement(f"w:{piece.kind}")
-    e.set(qn("w:id"), str(piece.revision_id or 0))
-    e.set(qn("w:author"), reviewer.author)
-    if reviewer.date:
-        e.set(qn("w:date"), reviewer.date)
+    e = _revision_marker(piece.kind, piece.revision_id or 0, reviewer)
     e.append(_run(piece.text, piece.rpr, "w:t" if piece.kind == "ins" else "w:delText"))
     return e
 
@@ -382,19 +378,123 @@ def _marker(tag: str, cid: int) -> Any:
     return e
 
 
+def _revision_marker(kind: str, revision_id: int, reviewer: PhysicalReviewer) -> Any:
+    marker = OxmlElement(f"w:{kind}")
+    marker.set(qn("w:id"), str(revision_id))
+    marker.set(qn("w:author"), reviewer.author)
+    if reviewer.date:
+        marker.set(qn("w:date"), reviewer.date)
+    return marker
+
+
+def _copy_run_properties(properties: Any | None) -> Any | None:
+    if properties is None:
+        return None
+    copied = deepcopy(properties)
+    changed_properties = {
+        qn("w:ins"),
+        qn("w:del"),
+        qn("w:moveFrom"),
+        qn("w:moveTo"),
+        qn("w:rPrChange"),
+        qn("w:conflictIns"),
+        qn("w:conflictDel"),
+    }
+    for child in list(copied):
+        if child.tag in changed_properties:
+            copied.remove(child)
+    return copied
+
+
+def _copy_paragraph_properties(anchor: Any) -> Any:
+    copied = OxmlElement("w:pPr")
+    source = anchor._p.find(qn("w:pPr"))
+    if source is None:
+        return copied
+
+    non_inherited = {
+        qn("w:numPr"),
+        qn("w:sectPr"),
+        qn("w:divId"),
+        qn("w:pPrChange"),
+    }
+    for child in source:
+        if child.tag in non_inherited:
+            continue
+        property_copy = deepcopy(child)
+        if property_copy.tag == qn("w:rPr"):
+            property_copy = _copy_run_properties(property_copy)
+        copied.append(property_copy)
+    return copied
+
+
+def _has_enabled_direct_vanish(run: Any) -> bool:
+    properties = run.find(qn("w:rPr"))
+    if properties is None:
+        return False
+    disabled_values = {"0", "false", "off"}
+    return any(
+        (value := vanish.get(qn("w:val"))) is None or value.strip().lower() not in disabled_values
+        for vanish in properties.findall(qn("w:vanish"))
+    )
+
+
+def _first_eligible_text_run(paragraph: Any) -> Any | None:
+    # Eligibility covers deleted content and direct w:vanish only. Visibility
+    # inherited through paragraph or character styles is not resolved here.
+    hidden_revisions = {qn("w:del"), qn("w:moveFrom")}
+
+    def find(element: Any) -> Any | None:
+        for child in element:
+            if child.tag == qn("w:pPr") or child.tag in hidden_revisions:
+                continue
+            if child.tag == qn("w:r"):
+                if not _has_enabled_direct_vanish(child) and any(
+                    node.text for node in child.iter(qn("w:t"))
+                ):
+                    return child
+                continue
+            result = find(child)
+            if result is not None:
+                return result
+        return None
+
+    return find(paragraph)
+
+
+def _insertion_run_properties(anchor: Any) -> Any | None:
+    run = _first_eligible_text_run(anchor._p)
+    properties = _copy_run_properties(run.find(qn("w:rPr")) if run is not None else None)
+    if properties is not None and len(properties):
+        return properties
+
+    paragraph_properties = anchor._p.find(qn("w:pPr"))
+    mark_properties = (
+        paragraph_properties.find(qn("w:rPr")) if paragraph_properties is not None else None
+    )
+    mark_properties = _copy_run_properties(mark_properties)
+    return mark_properties if mark_properties is not None and len(mark_properties) else None
+
+
 def _insert_block(
     doc: Any, anchor: Any, edit: PhysicalReviewEdit, reviewer: PhysicalReviewer, next_id: int
 ) -> int:
     lines = edit.replacement_text.splitlines() or [edit.replacement_text]
     elements = []
+    run_properties = _insertion_run_properties(anchor)
     for line in lines:
         p = OxmlElement("w:p")
-        ppr = OxmlElement("w:pPr")
-        rpr = OxmlElement("w:rPr")
-        rpr.append(_revision(_Piece("ins", "", revision_id=next_id), reviewer))
-        ppr.append(rpr)
+        ppr = _copy_paragraph_properties(anchor)
+        rpr = ppr.find(qn("w:rPr"))
+        if rpr is None:
+            rpr = OxmlElement("w:rPr")
+            ppr.append(rpr)
+        rpr.append(_revision_marker("ins", next_id, reviewer))
         p.append(ppr)
-        content = _revision(_Piece("ins", line, revision_id=next_id), reviewer)
+        content = _revision(
+            _Piece("ins", line, run_properties, revision_id=next_id),
+            reviewer,
+        )
         if edit.comment_text:
             comment_id = _create_comment(doc, edit.comment_text, reviewer)
             p.append(_marker("w:commentRangeStart", comment_id))
