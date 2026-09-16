@@ -55,14 +55,9 @@ def stamp_document_mark(source: str | Path | bytes, mark: DocumentMark) -> bytes
     existing = tuple(item.strip() for item in (props.keywords or "").split(";") if item.strip())
     props.keywords = ";".join(dict.fromkeys((*existing, *mark.keywords)))
     for footer in _footers(document):
-        if footer.is_linked_to_previous:
-            footer.is_linked_to_previous = False
         if any(mark.footer_text in paragraph.text for paragraph in footer.paragraphs):
             continue
-        if footer.paragraphs and not footer.paragraphs[0].text.strip():
-            footer.paragraphs[0].text = mark.footer_text
-        else:
-            footer.add_paragraph(mark.footer_text)
+        footer.add_paragraph(mark.footer_text)
     data = _save(document)
     if not has_document_mark(data, mark):
         raise PublicationMarkError("DOCX did not retain the requested document mark")
