@@ -301,6 +301,14 @@ Docxtor owns the physical OOXML mechanics for comments and tracked changes. It
 stays domain-blind: the caller supplies exact locators, ranges, author identity,
 and the accept/reject decision.
 
+Text replacement and deletion through `render_physical_review` or
+`render_physical_clean` preserve structurally empty inline content controls
+(`w:sdt` with an empty `w:sdtContent`). Controls inside the changed range retain
+source order at the leading boundary of the replacement after acceptance;
+rejection restores their original positions among the original runs. Controls
+at range boundaries stay outside the edit. Nonempty controls and other opaque
+objects remain protected, even when they have no visible text.
+
 For a whole-paragraph insertion rendered by `render_physical_review`, the new
 paragraph inherits the anchor's explicit paragraph style and direct paragraph
 formatting, except that direct paragraph `w:numPr`, section properties, identity

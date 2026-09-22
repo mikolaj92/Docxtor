@@ -211,7 +211,7 @@ def _apply_edit(
     end = _piece_index(pieces, edit.end_offset, end_boundary=True)
     chosen = pieces[start:end]
     if edit.end_offset > edit.start_offset and (
-        not chosen or any(p.kind != "text" for p in chosen)
+        not chosen or any(p.kind != "text" and not _empty_inline_sdt(p) for p in chosen)
     ):
         raise PhysicalReviewRenderError(
             f"review action {edit.action_id!r} crosses opaque content at {edit.locator}"
@@ -219,7 +219,9 @@ def _apply_edit(
     repl = []
     if edit.operation in {"delete", "replace"} and tracked:
         repl.extend(
-            _Piece(
+            p
+            if _empty_inline_sdt(p)
+            else _Piece(
                 "del",
                 p.text,
                 deepcopy(p.rpr),
@@ -230,6 +232,10 @@ def _apply_edit(
         )
         if chosen:
             next_id += 1
+    elif edit.operation in {"delete", "replace"}:
+        # Empty controls have no replacement text coordinate. Keep them at the
+        # leading boundary, in source order, as Accept All does for tracked edits.
+        repl.extend(p for p in chosen if _empty_inline_sdt(p))
     if edit.operation in {"insert", "replace"} and edit.replacement_text:
         repl.append(
             _Piece(
@@ -246,6 +252,26 @@ def _apply_edit(
     else:
         pieces[start:end] = repl
     return pieces, next_id
+
+
+def _empty_inline_sdt(piece: _Piece) -> bool:
+    """Only a structurally empty inline SDT is transparent to text replacement.
+
+    Zero visible width alone is insufficient: drawings, fields and other opaque
+    payloads remain protected. Keep the complete control, including properties.
+    """
+    element = piece.element
+    if piece.kind != "opaque" or piece.text or element is None or element.tag != qn("w:sdt"):
+        return False
+    contents = element.findall(qn("w:sdtContent"))
+    return (
+        len(contents) == 1
+        and len(contents[0]) == 0
+        and not (contents[0].text or "").strip()
+        and all(
+            child.tag in {qn("w:sdtPr"), qn("w:sdtEndPr"), qn("w:sdtContent")} for child in element
+        )
+    )
 
 
 def _coordinate_length(piece: _Piece) -> int:
