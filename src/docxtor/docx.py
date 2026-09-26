@@ -14,6 +14,7 @@ from docx.opc.oxml import serialize_part_xml
 from docx.text.paragraph import Paragraph
 
 from .common import DOCX_MIME, DocumentBytes, DocumentError, output_filename
+from .docx_alternate_content import DocxAlternateContentOperations
 from .docx_comments import (
     _collect_comments,
     _ensure_thread_parts,
@@ -82,7 +83,7 @@ __all__ = [
 ]
 
 
-class DocxDocument(DocxLocatorOperations):
+class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations):
     """DOCX editing surface backed by python-docx."""
 
     def __init__(
@@ -130,6 +131,7 @@ class DocxDocument(DocxLocatorOperations):
         instance._comments = stories.comments
         instance._thread_parts = stories.thread_parts
         instance._note_parts = stories.note_parts
+        instance._alternate_content_coverage = stories.alternate_content_coverage
         return instance
 
     @property
@@ -506,18 +508,6 @@ class DocxDocument(DocxLocatorOperations):
             raise ValueError(f"unknown replacement target: {rep.container_id or rep.id}")
         return idx, rep.start_offset, rep.end_offset
 
-    def _replace_full_segment(self, index: int, text: str) -> None:
-        ref = self._refs[index]
-        para = ref.paragraph
-        full = _paragraph_visible_text(para)
-        if full:
-            _replace_plain_range(para._p, 0, len(full), text)
-        elif para.runs:
-            para.runs[0].text = text
-        else:
-            para.add_run(text)
-        self._refresh_after_edit(index)
-
     def _apply_to_paragraph(
         self,
         index: int,
@@ -542,6 +532,9 @@ class DocxDocument(DocxLocatorOperations):
 
         if s == 0 and e == len(full):
             self._replace_full_segment(index, replacement)
+            return
+        if self._replace_alternate_content_text(para._p, replacement):
+            self._refresh_after_edit(index)
             return
 
         _replace_plain_range(para._p, s, e, replacement)

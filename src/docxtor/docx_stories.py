@@ -9,6 +9,12 @@ from docx.oxml import parse_xml
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
+from .docx_alternate_content import (
+    AlternateContentCoverage,
+    alternate_coverage_for,
+    iter_alternate_aware_blocks,
+    iter_alternate_aware_paragraphs,
+)
 from .docx_comments import (
     _capture_thread_parts,
     _collect_comments,
@@ -84,22 +90,7 @@ def _iter_paragraph_elements(container: Any, *, skip_text_boxes: bool = False) -
     body/header/table walk skips them so boxed paragraphs are not double-counted
     as body runs; ``_iter_text_box_hosts`` indexes them as ``txbx:N``.
     """
-    result: list[Any] = []
-
-    def walk(element: Any) -> None:
-        for child in element:
-            tag = child.tag
-            if skip_text_boxes and _is_text_box_container(tag):
-                continue
-            if tag == W_P:
-                result.append(child)
-            elif tag == W_SDT:
-                for content in child.iterchildren(W_SDT_CONTENT):
-                    walk(content)
-            # Nested tables are handled by the dedicated table enumeration path.
-
-    walk(container)
-    return result
+    return list(iter_alternate_aware_paragraphs(container, skip_text_boxes=skip_text_boxes))
 
 
 def _paragraphs_from_container(
@@ -137,6 +128,7 @@ class IndexedStories:
     comments: list[AddressableComment]
     thread_parts: dict[str, tuple[bytes, str]]
     note_parts: dict[str, tuple[Any, Any]]
+    alternate_content_coverage: AlternateContentCoverage
 
 
 def index_stories(doc: DocxDocumentType) -> IndexedStories:
@@ -268,7 +260,9 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
     # Body ids still count body paragraphs only; table ids still use python-docx's
     # table/row/cell coordinates and unique physical cells (#36 / #48).
     table_index = 0
-    for block in doc.element.body.iterchildren():
+    table_by_element = {id(table._tbl): table for table in doc.tables}
+    all_tables = list(doc.element.body.iter(W_TBL))
+    for block in iter_alternate_aware_blocks(doc.element.body):
         if block.tag == W_P:
             add_paragraphs([Paragraph(block, doc._body)], "body")
             continue
@@ -283,7 +277,10 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
             continue
         if block.tag != W_TBL:
             continue
-        table = doc.tables[table_index]
+        table = table_by_element.get(id(block))
+        if table is None:
+            continue
+        table_index = all_tables.index(block)
         seen_cells: set[object] = set()
         for ri, row in enumerate(table.rows):
             for ci, cell in enumerate(row.cells):
@@ -371,4 +368,5 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
         comments=comments,
         thread_parts=thread_parts,
         note_parts=note_parts,
+        alternate_content_coverage=alternate_coverage_for(doc.element),
     )

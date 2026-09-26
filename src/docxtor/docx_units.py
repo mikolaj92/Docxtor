@@ -6,6 +6,7 @@ from typing import Any
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
+from .docx_alternate_content import select_alternate_branch
 from .docx_models import AddressableSpan, SpanRole
 from .docx_ns import _TEXT_NODE_TAGS, R_ID
 from .docx_xml import _is_text_box_container, _local_tag, _w_get
@@ -78,6 +79,9 @@ def _paragraph_units(p_element: Any) -> list[_TextUnit]:
 
     def walk(node: Any) -> None:
         if node is not p_element and _is_text_box_container(node.tag):
+            return
+        if node.tag == "{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent":
+            walk(select_alternate_branch(node).selected)
             return
         tag = node.tag
         if tag in _TEXT_NODE_TAGS:

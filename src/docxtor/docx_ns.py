@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from docx.oxml.ns import qn
 
+MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+
 W_P = qn("w:p")
 W_R = qn("w:r")
 W_T = qn("w:t")
