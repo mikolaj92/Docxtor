@@ -95,6 +95,15 @@ from .docx_mutations import (
     SurfaceReplacement,
     apply_surface_replacements,
 )
+from .docx_opc_content_types import (
+    PROFILE_ID as DOCX_CONTENT_TYPES_PROFILE_ID,
+)
+from .docx_opc_content_types import (
+    ContentTypeDiagnostic,
+    ContentTypeSeverity,
+    ContentTypeValidation,
+    validate_docx_content_types,
+)
 from .docx_opc_relationships import (
     PROFILE_ID as DOCX_RELATIONSHIP_PROFILE_ID,
 )
@@ -265,6 +274,11 @@ __all__ = [
     "DocumentSurface",
     "DocxDocument",
     "DocxInventory",
+    "DOCX_CONTENT_TYPES_PROFILE_ID",
+    "ContentTypeDiagnostic",
+    "ContentTypeSeverity",
+    "ContentTypeValidation",
+    "validate_docx_content_types",
     "DOCX_RELATIONSHIP_PROFILE_ID",
     "RelationshipDiagnostic",
     "RelationshipSeverity",
