@@ -56,6 +56,15 @@ from .docx_compare_models import (
     TextChange,
     TextChangeKind,
 )
+from .docx_crossrefs import (
+    PROFILE_ID as DOCX_CROSS_REFERENCE_PROFILE_ID,
+)
+from .docx_crossrefs import (
+    CrossReferenceDiagnostic,
+    CrossReferenceReport,
+    CrossReferenceSeverity,
+    diagnose_docx_cross_references,
+)
 from .docx_facts import (
     ChangeKind,
     ContainerCoordinate,
@@ -242,6 +251,11 @@ __all__ = [
     "add_paragraph_comment",
     "remove_comments",
     "PublishError",
+    "DOCX_CROSS_REFERENCE_PROFILE_ID",
+    "CrossReferenceDiagnostic",
+    "CrossReferenceReport",
+    "CrossReferenceSeverity",
+    "diagnose_docx_cross_references",
     "PackageChangeReport",
     "PackagePartChange",
     "PackagePartChangeKind",
