@@ -143,6 +143,29 @@ authorship attributes, and thread sidecar parts (`commentsExtended.xml`,
 not become user-authored segments. Unknown comment targets fail before any edit.
 ReviewKit remains responsible for review semantics.
 
+### Text search across runs
+
+`DocxDocument.find_text()` finds overlapping exact matches across Word run
+boundaries while returning source-character offsets in a stable paragraph
+segment. Matches stay within one paragraph, and `container_id` can narrow the
+search. Opt into `match="normalized"` to fold case, common typographic
+characters, and whitespace for search only; returned text and offsets still
+refer to the original document. `replace_match()` applies a result only while
+its paragraph still matches the captured snapshot, then delegates the edit to
+Docxtor's offset-based replacement machinery.
+
+```python
+from docxtor import DocxDocument
+
+document = DocxDocument.open("input.docx")
+match = document.find_text("thirty days", match="normalized")[0]
+document.replace_match(match, "business days")
+```
+
+Search does not span paragraph boundaries or choose among matches on the
+caller's behalf. Use the returned match list and explicit paragraph coordinates
+to make that choice.
+
 ### Typed paragraph and run locators
 
 Consumers that need paragraph/run identity and values can stay independent of
@@ -330,6 +353,23 @@ preserves semantically unchanged source XML, normalizes ZIP timestamps, validate
 the complete package, runs optional validators, and performs one atomic replace.
 The returned `PublishReceipt` identifies the exact published bytes. A failure
 before replacement leaves an existing destination byte-for-byte unchanged.
+
+#### Optional Open XML SDK validation
+
+The Python library does not depend on .NET or the Open XML SDK. To independently
+validate a generated DOCX, install the pinned .NET SDK and run the opt-in
+validator from `validation/openxml/`:
+
+```bash
+dotnet run --project validation/openxml/Docxtor.OpenXmlValidation.csproj -- output.docx
+```
+
+The validator targets the explicitly configured Office 2019 file-format profile
+and emits structured findings (error ID/type, description, part URI, XPath when
+available), with a bounded error count. Package-open and validator execution
+failures are distinct from conformance findings and return non-zero. This is an
+independent OOXML conformance check, not a rendering, business-semantics, or
+complete Microsoft Office behavior guarantee; it never modifies the document.
 
 
 ### Complete mechanical facts and structural diff
