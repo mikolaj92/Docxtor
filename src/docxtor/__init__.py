@@ -95,6 +95,15 @@ from .docx_mutations import (
     SurfaceReplacement,
     apply_surface_replacements,
 )
+from .docx_opc_relationships import (
+    PROFILE_ID as DOCX_RELATIONSHIP_PROFILE_ID,
+)
+from .docx_opc_relationships import (
+    RelationshipDiagnostic,
+    RelationshipSeverity,
+    RelationshipValidation,
+    validate_docx_relationships,
+)
 from .docx_package import (
     DEFAULT_PACKAGE_LIMITS,
     PackageEntry,
@@ -256,6 +265,11 @@ __all__ = [
     "DocumentSurface",
     "DocxDocument",
     "DocxInventory",
+    "DOCX_RELATIONSHIP_PROFILE_ID",
+    "RelationshipDiagnostic",
+    "RelationshipSeverity",
+    "RelationshipValidation",
+    "validate_docx_relationships",
     "InventoryCoverage",
     "DEFAULT_PACKAGE_LIMITS",
     "PackageEntry",
