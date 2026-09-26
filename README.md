@@ -129,6 +129,15 @@ and hyperlink anchor/relationship. Unsupported structural revisions such as
 `w:moveFrom` or block-level `w:ins` raise `UnsupportedRevisionError` before
 any partial output is written. Docxtor does not interpret review meaning.
 
+`mc:AlternateContent` story traversal selects exactly one `Choice` whose
+`Requires` namespaces are in Docxtor's declared support set, otherwise the
+`Fallback` branch. It never concatenates mutually exclusive branches.
+`document.alternate_content_coverage` counts selected regions and reports
+unsupported or unbound `Requires` namespaces; a non-empty limitation means
+coverage is incomplete. Read projection is for inventory only: mutation of a
+paragraph inside `AlternateContent` writes the corresponding paragraph in every
+branch, and fails closed when branch paragraph structures cannot be aligned.
+
 User-authored footnotes and endnotes are mechanical stories with stable
 `footnote:{id}:p:{n}` and `endnote:{id}:p:{n}` ids. Separator and continuation-
 separator notes are not user segments, and missing note parts are never created.
