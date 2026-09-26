@@ -124,6 +124,12 @@ from .docx_package import (
     restore_semantically_unchanged_xml_parts,
     write_package_atomically,
 )
+from .docx_package_diff import (
+    PackageChangeReport,
+    PackagePartChange,
+    PackagePartChangeKind,
+    compare_docx_packages,
+)
 from .docx_properties import (
     read_core_keywords,
     remove_core_keyword_values,
@@ -236,6 +242,10 @@ __all__ = [
     "add_paragraph_comment",
     "remove_comments",
     "PublishError",
+    "PackageChangeReport",
+    "PackagePartChange",
+    "PackagePartChangeKind",
+    "compare_docx_packages",
     "PublishReceipt",
     "publish_docx",
     "AcceptRevisionsError",
