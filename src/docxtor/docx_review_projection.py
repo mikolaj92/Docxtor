@@ -5,8 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from docx.oxml.ns import qn
+
 from .docx import DocxDocument
-from .docx_facts import docx_facts
+from .docx_facts import ParagraphFact, docx_facts
 from .docx_inline import _advances_offset, paragraph_to_inline_segments
 from .docx_models import AddressableComment, AddressableSpan
 from .docx_review_inventory import inventory_review_markup
@@ -39,6 +41,7 @@ class DocxReviewProjection:
     table_count: int
     coverage: ReviewCoverage
     diagnostics: tuple[ReviewDiagnostic, ...]
+    paragraph_mark_revisions: tuple[AddressableSpan, ...] = ()
 
 
 def project_docx_for_review(source: str | Path | bytes) -> DocxReviewProjection:
@@ -77,15 +80,88 @@ def project_docx_for_review(source: str | Path | bytes) -> DocxReviewProjection:
         for fact in facts.paragraphs
         if fact.coordinate.table_index is not None
     }
+    # The text segment stream omits empty paragraphs; structural revisions
+    # still need receipts at those physical addresses.
+    marks = _paragraph_mark_revisions(document, facts.paragraphs)
+    coverage = inventory.coverage
+    diagnostics = inventory.diagnostics
+    effective_parts: dict[str, list[str]] = {}
+    for span in document.spans:
+        if span.role != "deletion":
+            effective_parts.setdefault(span.container_id, []).append(span.text)
+    # A deleted nonempty boundary can merge paragraphs and change their final
+    # style. Physical receipts alone cannot map semantic actions back across
+    # that merge. Retain fail-closed coverage until origin grouping is exposed.
+    if any(
+        mark.role == "deletion" and "".join(effective_parts.get(mark.container_id, ())).strip()
+        for mark in marks
+    ):
+        coverage = ReviewCoverage.INCOMPLETE
+        diagnostics += (
+            ReviewDiagnostic(
+                "unprojected_paragraph_merge",
+                "A deleted nonempty paragraph boundary has no semantic origin mapping.",
+            ),
+        )
+    if len(marks) != sum(
+        revision.paragraph_mark and revision.raw_kind in {"ins", "del"}
+        for revision in inventory.revisions
+    ):
+        coverage = ReviewCoverage.INCOMPLETE
+        diagnostics += (
+            ReviewDiagnostic(
+                "unprojected_paragraph_mark_revision",
+                "A paragraph-mark revision has no addressable review projection.",
+            ),
+        )
     return DocxReviewProjection(
         tuple(paragraphs),
         document.spans,
         inventory.comments,
         notes,
         len(table_ids),
-        inventory.coverage,
-        inventory.diagnostics,
+        coverage,
+        diagnostics,
+        marks,
     )
+
+
+def _paragraph_mark_revisions(
+    document: DocxDocument,
+    paragraphs: tuple[ParagraphFact, ...],
+) -> tuple[AddressableSpan, ...]:
+    """Expose structural boundary revisions separately from textual spans."""
+    marks = []
+    offsets: dict[str, int] = {}
+    for span in document.spans:
+        offsets[span.container_id] = max(offsets.get(span.container_id, 0), span.end_offset)
+    for segment in paragraphs:
+        locator = segment.container_id
+        paragraph = document.resolve_paragraph(locator)
+        if paragraph is None:
+            continue
+        properties = paragraph._p.find(f"{qn('w:pPr')}/{qn('w:rPr')}")
+        if properties is None:
+            continue
+        offset = offsets.get(locator, 0)
+        for index, node in enumerate(properties):
+            if node.tag not in {qn("w:ins"), qn("w:del")}:
+                continue
+            marks.append(
+                AddressableSpan(
+                    span_id=f"{locator}:paragraph-mark:{index}",
+                    container_id=locator,
+                    role="insertion" if node.tag == qn("w:ins") else "deletion",
+                    text="",
+                    start_offset=offset,
+                    end_offset=offset,
+                    paragraph_index=segment.paragraph_index,
+                    revision_id=node.get(qn("w:id")),
+                    revision_author=node.get(qn("w:author")),
+                    revision_date=node.get(qn("w:date")),
+                )
+            )
+    return tuple(marks)
 
 
 def _opaque_ranges(paragraph: object) -> tuple[tuple[int, int], ...]:
