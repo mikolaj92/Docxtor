@@ -179,7 +179,7 @@ def test_load_docx_document_and_write_docx_bytes(tmp_path: Path) -> None:
         ],
         strict=True,
     )
-    output = document_to_bytes(document, "input.docx")
+    output = document_to_bytes(document)
 
     assert output.filename == "input.anonimizowany.docx"
     assert output.content_type == DOCX_MIME
@@ -193,7 +193,7 @@ def test_load_pdf_document_and_write_pdf_bytes() -> None:
     assert document.extraction_mode == PdfExtractionMode.TEXT_LAYER
     assert document.texts == ["Jan Kowalski\n"]
     document.apply_texts(["<PERSON>"])
-    output = document_to_bytes(document, "input.pdf")
+    output = document_to_bytes(document)
 
     assert output.filename == "input.anonimizowany.pdf"
     assert output.content_type == PDF_MIME
@@ -229,7 +229,7 @@ def test_pdf_write_preserves_polish_text_and_page_count() -> None:
 
     anonymized = document.texts[0].replace("Jan Kowalski", "****").replace("44051401359", "****")
     document.apply_texts([anonymized])
-    output = document_to_bytes(document, "input.pdf")
+    output = document_to_bytes(document)
 
     output_text = _pdf_text(output.data)
     assert _pdf_page_count(output.data) == _pdf_page_count(data)
@@ -243,7 +243,7 @@ def test_pdf_write_keeps_original_page_count() -> None:
     data = _pdf_bytes("Jan Kowalski", "Anna Nowak")
     document = load_document("input.pdf", PDF_MIME, data)
     document.apply_texts(["<PERSON>\n", "<PERSON>\n"])
-    output = document_to_bytes(document, "input.pdf")
+    output = document_to_bytes(document)
     output_text = _pdf_text(output.data)
 
     assert _pdf_page_count(output.data) == 2
@@ -272,7 +272,7 @@ def test_pdf_anonymization_round_trip_preserves_page_count() -> None:
         for text in document.texts
     ]
     document.apply_texts(anonymized_texts)
-    output = document_to_bytes(document, "fixture.pdf")
+    output = document_to_bytes(document)
     output_text = _pdf_text(output.data)
 
     assert output.filename == "fixture.anonimizowany.pdf"
@@ -294,7 +294,7 @@ def test_pdf_write_redacts_changed_occurrence_by_offset() -> None:
     data = _pdf_bytes("Jan Kowalski oraz Jan Kowalski")
     document = load_document("input.pdf", PDF_MIME, data)
     document.apply_texts([document.texts[0].replace("Jan Kowalski", "<PERSON>", 1)])
-    output = document_to_bytes(document, "input.pdf")
+    output = document_to_bytes(document)
     output_text = _pdf_text(output.data)
 
     assert "<PERSON>" in output_text
@@ -307,7 +307,7 @@ def test_pdf_write_redacts_bracketed_labels_in_place() -> None:
     data = _pdf_bytes("Jan signed the contract with ACME.")
     document = load_document("input.pdf", PDF_MIME, data)
     document.apply_texts([document.texts[0].replace("Jan", "[OSOBA_1]")])
-    output = document_to_bytes(document, "input.pdf")
+    output = document_to_bytes(document)
     output_text = _pdf_text(output.data)
     # Redaction text may wrap inside a narrow source rect; join for matching.
     compact_text = re.sub(r"\s+", "", output_text)
@@ -335,7 +335,7 @@ def test_pdf_label_style_anonymization_preserves_page_count() -> None:
         for text in document.texts
     ]
     document.apply_texts(anonymized_texts)
-    output = document_to_bytes(document, "fixture.pdf")
+    output = document_to_bytes(document)
     output_text = _pdf_text(output.data)
 
     assert _pdf_page_count(output.data) == page_count
@@ -355,7 +355,7 @@ def test_pdf_write_rebuilds_page_when_text_is_inserted() -> None:
     document.apply_texts(
         [document.texts[0].replace("Pierwsze zdanie.", "Pierwsze zdanie. Drugie zdanie.")]
     )
-    output = document_to_bytes(document, "input.pdf")
+    output = document_to_bytes(document)
     output_text = _pdf_text(output.data)
 
     assert _pdf_page_count(output.data) == 1
@@ -372,7 +372,7 @@ def test_pdf_write_reflows_inserted_text_across_original_page_boundaries() -> No
             document.texts[1],
         ]
     )
-    output = document_to_bytes(document, "input.pdf")
+    output = document_to_bytes(document)
     output_text = _pdf_text(output.data)
 
     assert _pdf_page_count(output.data) > _pdf_page_count(data)
@@ -384,7 +384,7 @@ def test_pdf_write_rebuilds_page_when_replacement_is_longer() -> None:
     data = _pdf_bytes("Status: OK")
     document = load_document("input.pdf", PDF_MIME, data)
     document.apply_texts([document.texts[0].replace("OK", "bardzo dobrze")])
-    output = document_to_bytes(document, "input.pdf")
+    output = document_to_bytes(document)
     output_text = _pdf_text(output.data)
 
     assert _pdf_page_count(output.data) == 1
@@ -396,7 +396,7 @@ def test_pdf_write_removes_deleted_text() -> None:
     data = _pdf_bytes("Alpha Beta Gamma")
     document = load_document("input.pdf", PDF_MIME, data)
     document.apply_texts([document.texts[0].replace("Beta ", "")])
-    output = document_to_bytes(document, "input.pdf")
+    output = document_to_bytes(document)
     output_text = _pdf_text(output.data)
 
     assert _pdf_page_count(output.data) == 1
@@ -422,7 +422,7 @@ def test_load_text_document_and_write_txt_bytes() -> None:
 
     assert document.texts == ["Zażółć"]
     document.apply_texts(["<TEXT>"])
-    output = document_to_bytes(document, "input.txt")
+    output = document_to_bytes(document)
 
     assert output.filename == "input.anonimizowany.txt"
     assert output.content_type == TXT_MIME
@@ -434,7 +434,7 @@ def test_load_markdown_document_and_write_markdown_bytes() -> None:
 
     assert document.texts == ["# Title\n\nOld"]
     document.apply_texts(["# Title\n\nNew"])
-    output = document_to_bytes(document, "notes.md")
+    output = document_to_bytes(document)
 
     assert output.filename == "notes.anonimizowany.md"
     assert output.content_type == MD_MIME

@@ -56,7 +56,7 @@ document.apply_replacements(
     ],
     strict=True,
 )
-output = document_to_bytes(document, "input.docx")
+output = document_to_bytes(document)
 
 output.filename      # input.anonimizowany.docx
 output.content_type  # application/vnd.openxmlformats-officedocument.wordprocessingml.document
