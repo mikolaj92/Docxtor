@@ -14,10 +14,6 @@ def load_document(filename: str, content_type: str, data: bytes) -> Document:
     return engine_for(detection.kind).open(detection, data)
 
 
-def document_to_bytes(document: Document, filename: str | None = None):
-    """Serialize with the engine-owned filename and content-type contract.
-
-    ``filename`` remains accepted for source compatibility; loaded documents
-    already own their filename and format, so it is never used to guess output.
-    """
+def document_to_bytes(document: Document):
+    """Serialize with the engine-owned filename and content-type contract."""
     return document.to_document_bytes()
