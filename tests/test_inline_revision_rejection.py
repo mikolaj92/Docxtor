@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from docx import Document
+from docx.opc.packuri import PackURI
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from lxml import etree
@@ -326,6 +327,303 @@ def test_removal_refuses_table_story_without_mutating_package() -> None:
     assert handle.to_bytes() == before
 
 
+def _comment_marker_paragraph(paragraph) -> None:
+    for name in ("commentRangeStart", "commentRangeEnd", "commentReference"):
+        marker = OxmlElement(f"w:{name}")
+        marker.set(qn("w:id"), "10")
+        if name == "commentReference":
+            run = OxmlElement("w:r")
+            run.append(marker)
+            paragraph.append(run)
+        else:
+            paragraph.append(marker)
+
+
+def _commented_insertion_with_external_markers(part_name: str, *, linked: bool) -> bytes:
+    source = Document()
+    source.add_paragraph("Before")
+    inserted = source.add_paragraph()
+    _comment_marker_paragraph(inserted._p)
+    inserted._p.insert(1, _revision("ins", "Inserted"))
+    source.add_paragraph("After")
+    if linked:
+        header = source.sections[0].header
+        _comment_marker_paragraph(header.paragraphs[0]._p)
+        header.part._partname = PackURI(f"/{part_name}")
+        return _bytes(source)
+    orphan = OxmlElement("w:hdr")
+    paragraph = OxmlElement("w:p")
+    _comment_marker_paragraph(paragraph)
+    orphan.append(paragraph)
+    output = BytesIO()
+    with (
+        zipfile.ZipFile(BytesIO(_bytes(source))) as package,
+        zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as augmented,
+    ):
+        for entry in package.infolist():
+            augmented.writestr(entry, package.read(entry))
+        augmented.writestr(part_name, etree.tostring(orphan))
+    return output.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("part_name", "linked"),
+    [
+        ("word/header1.xml", True),
+        ("custom/header1.xml", True),
+        ("word/header1.XML", True),
+        ("custom/header1.payload", True),
+        ("word/orphan.xml", False),
+        ("custom/orphan.payload", False),
+    ],
+)
+def test_commented_insertion_refuses_markers_in_any_live_or_source_only_xml_part(
+    tmp_path: Path,
+    part_name: str,
+    linked: bool,
+) -> None:
+    source_bytes = _commented_insertion_with_external_markers(part_name, linked=linked)
+    source_path = tmp_path / "source.docx"
+    source_path.write_bytes(source_bytes)
+    handle = DocxDocument.open(source_path)
+    before = handle.to_bytes()
+    before_paragraphs = [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()]
+    with zipfile.ZipFile(BytesIO(before)) as live_package:
+        assert (part_name in live_package.namelist()) is linked
+    with pytest.raises(DocumentError, match="extend outside"):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+    assert source_path.read_bytes() == source_bytes
+    assert [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()] == before_paragraphs
+
+
+def test_commented_insertion_uses_live_xml_instead_of_stale_source_part() -> None:
+    source_bytes = _commented_insertion_with_external_markers("word/header1.xml", linked=True)
+    handle = DocxDocument.open_bytes(source_bytes)
+    header_paragraph = handle._doc.sections[0].header.paragraphs[0]._p
+    for child in list(header_paragraph):
+        header_paragraph.remove(child)
+    before = [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()]
+    handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    after = [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()]
+    assert after == before[:1] + before[2:]
+    assert handle._source_bytes == source_bytes
+
+
+def _declared_source_only_comment_part(
+    declaration: str, part_name: str, prefix_length: int, *, malformed: bool = False
+) -> bytes:
+    source = _commented_insertion_with_external_markers(part_name, linked=False)
+    output = BytesIO()
+    with (
+        zipfile.ZipFile(BytesIO(source)) as package,
+        zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as augmented,
+    ):
+        for entry in package.infolist():
+            payload = package.read(entry)
+            if entry.filename == "[Content_Types].xml":
+                root = etree.fromstring(payload)
+                attributes = {
+                    "ContentType": (
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"
+                    ),
+                }
+                if declaration == "Default":
+                    attributes["Extension"] = part_name.rsplit(".", 1)[1].upper()
+                else:
+                    attributes["PartName"] = f"/{part_name.upper()}"
+                etree.SubElement(root, f"{{{root.nsmap[None]}}}{declaration}", **attributes)
+                payload = etree.tostring(root)
+            elif entry.filename == part_name:
+                payload = b" " * prefix_length + (b"<unclosed" if malformed else payload)
+            augmented.writestr(entry, payload)
+    return output.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("declaration", "part_name", "prefix_length"),
+    [
+        ("Override", "parts/header.payload", 65535),
+        ("Override", "parts/header.payload", 65536),
+        ("Default", "parts/header.payload", 65535),
+        ("Default", "parts/header.payload", 65536),
+        ("Override", "custom/HEADER.Payload", 65536),
+        ("Default", "custom/HEADER.Payload", 65536),
+    ],
+)
+def test_commented_insertion_honors_source_only_declared_xml_beyond_sniff_window(
+    tmp_path: Path, declaration: str, part_name: str, prefix_length: int
+) -> None:
+    source_bytes = _declared_source_only_comment_part(declaration, part_name, prefix_length)
+    source_path = tmp_path / "declared.docx"
+    source_path.write_bytes(source_bytes)
+    handle = DocxDocument.open(source_path)
+    before = handle.to_bytes()
+    with zipfile.ZipFile(BytesIO(source_bytes)) as original:
+        assert etree.fromstring(original.read(part_name)).tag == qn("w:hdr")
+        assert declaration.encode() in original.read("[Content_Types].xml")
+    with zipfile.ZipFile(BytesIO(before)) as live:
+        assert part_name not in live.namelist()
+        assert b"header.payload" not in live.read("[Content_Types].xml").lower()
+        assert b'Extension="PAYLOAD"' not in live.read("[Content_Types].xml")
+    with pytest.raises(DocumentError, match="extend outside"):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+    assert source_path.read_bytes() == source_bytes
+
+
+@pytest.mark.parametrize("declaration", ["Override", "Default"])
+def test_commented_insertion_refuses_invalid_declared_source_only_xml(declaration: str) -> None:
+    source_bytes = _declared_source_only_comment_part(
+        declaration, "parts/header.payload", 65536, malformed=True
+    )
+    handle = DocxDocument.open_bytes(source_bytes)
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError, match="invalid"):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+
+
+def _change_source_content_types(source: bytes, edit) -> bytes:
+    output = BytesIO()
+    with (
+        zipfile.ZipFile(BytesIO(source)) as package,
+        zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as augmented,
+    ):
+        for entry in package.infolist():
+            payload = package.read(entry)
+            if entry.filename == "[Content_Types].xml":
+                root = etree.fromstring(payload)
+                edit(root)
+                payload = etree.tostring(root)
+            augmented.writestr(entry, payload)
+    return output.getvalue()
+
+
+@pytest.mark.parametrize("declaration", ["Override", "Default"])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("mixed_case", [False, True])
+def test_commented_insertion_refuses_duplicate_content_type_keys_before_mapping(
+    tmp_path: Path, declaration: str, reverse: bool, mixed_case: bool
+) -> None:
+    source = _declared_source_only_comment_part(declaration, "parts/header.payload", 65536)
+
+    def duplicate(root) -> None:
+        original = root[-1]
+        extra = etree.SubElement(root, original.tag, **original.attrib)
+        extra.set("ContentType", "application/octet-stream")
+        if mixed_case:
+            key = "Extension" if declaration == "Default" else "PartName"
+            extra.set(key, extra.get(key).lower())
+        if reverse:
+            original.set("ContentType", "application/octet-stream")
+            extra.set(
+                "ContentType",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml",
+            )
+
+    source_bytes = _change_source_content_types(source, duplicate)
+    source_path = tmp_path / "ambiguous.docx"
+    source_path.write_bytes(source_bytes)
+    handle = DocxDocument.open(source_path)
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError, match="ambiguous content type"):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+    assert source_path.read_bytes() == source_bytes
+
+
+@pytest.mark.parametrize("declaration", ["Override", "Default"])
+def test_commented_insertion_recognizes_declared_xml_with_media_type_parameters(
+    declaration: str,
+) -> None:
+    source = _declared_source_only_comment_part(declaration, "parts/header.payload", 65536)
+
+    def parameters(root) -> None:
+        original = root[-1]
+        original.set("ContentType", original.get("ContentType") + "; charset=utf-8")
+
+    source_bytes = _change_source_content_types(source, parameters)
+    handle = DocxDocument.open_bytes(source_bytes)
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError, match="extend outside"):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+
+
+@pytest.mark.parametrize("invalid", ["missing_type", "unresolved_part", "invalid_part"])
+def test_commented_insertion_refuses_unusable_content_type_declarations(invalid: str) -> None:
+    source = _declared_source_only_comment_part("Override", "parts/header.payload", 65536)
+
+    def invalidate(root) -> None:
+        original = root[-1]
+        if invalid == "missing_type":
+            del original.attrib["ContentType"]
+        else:
+            original.set(
+                "PartName",
+                "/parts/missing.payload" if invalid == "unresolved_part"
+                else "/parts/../header.payload",
+            )
+
+    source_bytes = _change_source_content_types(source, invalidate)
+    handle = DocxDocument.open_bytes(source_bytes)
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+
+
+def test_commented_insertion_keeps_distinct_opc_declarations_and_default_override_pair() -> None:
+    source = _declared_source_only_comment_part("Override", "parts/header.payload", 65536)
+
+    def distinct(root) -> None:
+        namespace = root.nsmap[None]
+        etree.SubElement(
+            root, f"{{{namespace}}}Default", Extension="payload",
+            ContentType="application/octet-stream",
+        )
+        # An unused Default is legal OPC metadata, as is an Override taking precedence.
+        etree.SubElement(
+            root, f"{{{namespace}}}Default", Extension="unused",
+            ContentType="application/octet-stream",
+        )
+
+    source = _change_source_content_types(source, distinct)
+    output = BytesIO()
+    with (
+        zipfile.ZipFile(BytesIO(source)) as package,
+        zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as augmented,
+    ):
+        for entry in package.infolist():
+            payload = package.read(entry)
+            if entry.filename == "parts/header.payload":
+                payload = payload.replace(b'id="10"', b'id="77"')
+            elif entry.filename == "[Content_Types].xml":
+                root = etree.fromstring(payload)
+                etree.SubElement(
+                    root, f"{{{root.nsmap[None]}}}Override", PartName="/other/header.payload",
+                    ContentType="application/octet-stream",
+                )
+                payload = etree.tostring(root)
+            augmented.writestr(entry, payload)
+        augmented.writestr("other/header.payload", b"Original binary payload")
+    source_bytes = output.getvalue()
+    handle = DocxDocument.open_bytes(source_bytes)
+    original_paragraphs = [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()]
+    handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()] == [
+        original_paragraphs[0], original_paragraphs[2]
+    ]
+    assert handle._source_bytes == source_bytes
+
+
 def test_removal_refuses_inserted_paragraph_carrying_source_section_properties() -> None:
     source = Document()
     source.add_paragraph("Before")
@@ -412,3 +710,120 @@ def test_exact_bytes_detect_payload_changes_across_wall_clock_rollover(
     )
     assert handle.to_bytes() != before
     assert "".join(s.text for s in handle.get_inline_segments("body:p:0")) == "Changed"
+
+
+def test_remove_commented_inserted_paragraph_keeps_source_and_other_package_members(
+    tmp_path: Path,
+) -> None:
+    source = Document()
+    original = source.add_paragraph()
+    original.paragraph_format.keep_with_next = True
+    run = original.add_run("[OSOBA_1] Source ")
+    run.bold = True
+    source.add_comment(run, text="Source comment", author="Source")
+    source.add_paragraph("After")
+    source_path = tmp_path / "source.docx"
+    source_bytes = _bytes(source)
+    source_path.write_bytes(source_bytes)
+    reviewed = tmp_path / "reviewed.docx"
+    render_physical_review(
+        source_path,
+        reviewed,
+        PhysicalReviewPlan(
+            edits=(
+                PhysicalReviewEdit(
+                    action_id="commented-insertion",
+                    locator="body:p:0",
+                    operation="insert",
+                    start_offset=0,
+                    end_offset=0,
+                    replacement_text="Inserted [OSOBA_2]",
+                    new_paragraph=True,
+                    comment_text="Insertion comment",
+                ),
+            )
+        ),
+    )
+    reviewed_bytes = reviewed.read_bytes()
+    handle = DocxDocument.open(reviewed)
+    before = [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()]
+    handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted [OSOBA_2]")
+    assert [p.value for p in handle.paragraph_resolutions] == ["[OSOBA_1] Source ", "After"]
+    assert [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()] == [before[0], before[2]]
+    output = tmp_path / "removed.docx"
+    handle.publish(output)
+    with zipfile.ZipFile(reviewed) as original_package, zipfile.ZipFile(output) as result_package:
+        assert original_package.namelist() == result_package.namelist()
+        for member in original_package.namelist():
+            if member != "word/document.xml":
+                assert original_package.read(member) == result_package.read(member)
+    assert source_path.read_bytes() == source_bytes
+    assert reviewed.read_bytes() == reviewed_bytes
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "cross_end",
+        "cross_reference",
+        "duplicate_start",
+        "missing_reference",
+        "wrong_order",
+        "source_opaque",
+        "source_empty_run",
+        "reference_payload",
+        "missing_id",
+        "section",
+        "stale",
+    ],
+)
+def test_remove_commented_insertion_refuses_unsafe_annotations_without_mutation(
+    invalid: str,
+) -> None:
+    source = Document()
+    source.add_paragraph("Before")
+    inserted = source.add_paragraph()
+    after = source.add_paragraph("After")
+    markers = []
+    for name in ("commentRangeStart", "commentRangeEnd", "commentReference"):
+        marker = OxmlElement(f"w:{name}")
+        marker.set(qn("w:id"), "10")
+        markers.append(marker)
+    start, end, reference = markers
+    reference_run = OxmlElement("w:r")
+    reference_run.append(reference)
+    inserted._p.append(start)
+    inserted._p.append(_revision("ins", "Inserted"))
+    inserted._p.append(end)
+    inserted._p.append(reference_run)
+    if invalid == "cross_end":
+        after._p.append(end)
+    elif invalid == "cross_reference":
+        extra = OxmlElement("w:commentReference")
+        extra.set(qn("w:id"), "10")
+        after._p.append(extra)
+    elif invalid == "duplicate_start":
+        extra = OxmlElement("w:commentRangeStart")
+        extra.set(qn("w:id"), "10")
+        inserted._p.insert(0, extra)
+    elif invalid == "missing_reference":
+        inserted._p.remove(reference_run)
+    elif invalid == "wrong_order":
+        inserted._p.insert(0, end)
+    elif invalid == "source_opaque":
+        inserted._p.append(OxmlElement("w:sdt"))
+    elif invalid == "source_empty_run":
+        inserted.add_run("").bold = True
+    elif invalid == "reference_payload":
+        reference_run.append(OxmlElement("w:drawing"))
+    elif invalid == "missing_id":
+        del start.attrib[qn("w:id")]
+    elif invalid == "section":
+        inserted._p.get_or_add_pPr().append(OxmlElement("w:sectPr"))
+    handle = DocxDocument.open_bytes(_bytes(source))
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError):
+        handle.remove_inserted_paragraph(
+            "body:p:1", expected_text="Stale" if invalid == "stale" else "Inserted"
+        )
+    assert handle.to_bytes() == before
