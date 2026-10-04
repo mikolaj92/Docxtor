@@ -182,3 +182,69 @@ def test_open_handle_keeps_state_when_comment_update_fails() -> None:
     assert document.comments == comments_before
     assert document.texts == texts_before
     assert document.comments[0].comment_id == added.receipt.created_ids[0]
+
+
+def _comment_ids(root: etree._Element, local: str) -> list[str]:
+    return [str(value) for value in root.xpath(f"//w:{local}/@w:id", namespaces=NS)]
+
+
+def test_open_path_adds_repeated_native_comments_on_one_sentence(tmp_path: Path) -> None:
+    path = tmp_path / "sentence.docx"
+    sentence = "The same sentence."
+    path.write_bytes(_docx(sentence))
+    document = DocxDocument.open(path)
+    author = CommentAuthor("Reviewer", "RV", "2024-01-01T00:00:00Z")
+    target = CommentRange("body:p:0", 0, len(sentence), sentence)
+    notes = ("first pass", "second pass", "third pass")
+
+    for note in notes:
+        document.add_comment(target, note, author)
+    document.publish()
+
+    reopened = DocxDocument.open(path)
+    assert [comment.text for comment in reopened.comments] == list(notes)
+    assert all(
+        comment.locator == "body:p:0" and comment.anchor_text == sentence
+        for comment in reopened.comments
+    )
+    root = _part_xml(path.read_bytes())
+    ids = ["0", "1", "2"]
+    assert sorted(_comment_ids(root, "commentRangeStart")) == ids
+    assert sorted(_comment_ids(root, "commentRangeEnd")) == ids
+    assert sorted(_comment_ids(root, "commentReference")) == ids
+    comments_xml = ZipFile(path).read("word/comments.xml")
+    for note in notes:
+        assert note.encode() in comments_xml
+
+
+def test_open_path_adds_comment_over_a_span_that_already_has_markers(tmp_path: Path) -> None:
+    path = tmp_path / "overlap.docx"
+    sentence = "The same sentence."
+    path.write_bytes(_docx(sentence))
+    document = DocxDocument.open(path)
+    author = CommentAuthor("Reviewer", "RV", "2024-01-01T00:00:00Z")
+
+    inner = document.add_comment(
+        CommentRange("body:p:0", 4, 8, "same"),
+        "inner pass",
+        author,
+    )
+    outer = document.add_comment(
+        CommentRange("body:p:0", 0, len(sentence), sentence),
+        "outer pass",
+        author,
+    )
+    document.publish()
+
+    reopened = DocxDocument.open(path)
+    by_id = {comment.comment_id: comment for comment in reopened.comments}
+    inner_id = inner.receipt.created_ids[0]
+    outer_id = outer.receipt.created_ids[0]
+    assert by_id[inner_id].text == "inner pass"
+    assert by_id[inner_id].anchor_text == "same"
+    assert by_id[outer_id].text == "outer pass"
+    assert by_id[outer_id].anchor_text == sentence
+    root = _part_xml(path.read_bytes())
+    assert sorted(_comment_ids(root, "commentRangeStart")) == sorted([inner_id, outer_id])
+    assert sorted(_comment_ids(root, "commentRangeEnd")) == sorted([inner_id, outer_id])
+    assert sorted(_comment_ids(root, "commentReference")) == sorted([inner_id, outer_id])
