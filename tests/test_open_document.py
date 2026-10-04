@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from pathlib import Path
 from zipfile import ZipFile
 
 import pytest
@@ -11,6 +12,7 @@ from docxtor import (
     CommentMutationError,
     CommentRange,
     DocxDocument,
+    PublishError,
     RevisionAuthor,
     RevisionPosition,
     RevisionRange,
@@ -20,12 +22,19 @@ W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 NS = {"w": W}
 
 
-def _docx(text: str = "Hello world") -> bytes:
+def _docx(*paragraphs: str) -> bytes:
     from docx import Document
 
-    buffer = BytesIO()
+    texts = paragraphs or ("Hello world",)
     document = Document()
-    document.add_paragraph(text)
+    if document.paragraphs:
+        document.paragraphs[0].text = texts[0]
+        rest = texts[1:]
+    else:
+        rest = texts
+    for text in rest:
+        document.add_paragraph(text)
+    buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()
 
@@ -36,18 +45,18 @@ def _part_xml(data: bytes, part: str = "word/document.xml") -> etree._Element:
 
 
 def test_open_handle_comments_and_native_tracked_edits() -> None:
-    document = DocxDocument.open_bytes(_docx())
+    document = DocxDocument.open_bytes(_docx("Hello", "world", "extra"))
     author = CommentAuthor("Reviewer", "RV", "2024-01-01T00:00:00Z")
     reviewer = RevisionAuthor("Reviewer", "2024-01-01T00:00:00Z")
 
     added = document.add_comment(
-        CommentRange("body:p:0", 6, 11, "world"),
+        CommentRange("body:p:0", 0, 5, "Hello"),
         "Neutral note",
         author,
     )
     comment_id = added.receipt.created_ids[0]
     assert document.comments[0].text == "Neutral note"
-    assert document.comments[0].anchor_text == "world"
+    assert document.comments[0].anchor_text == "Hello"
 
     updated = document.update_comment(comment_id, "Revised note", expected_text="Neutral note")
     assert updated.receipt.operation == "update_comment"
@@ -55,26 +64,17 @@ def test_open_handle_comments_and_native_tracked_edits() -> None:
     assert document.comments[0].comment_id == comment_id
     assert document.comments[0].author == "Reviewer"
 
-    removed = document.delete_comment(comment_id)
+    removed = document.remove_comments({comment_id})
     assert removed.receipt.operation == "remove_comments"
     assert document.comments == ()
 
-    inserted = document.insert_revision(RevisionPosition("body:p:0", 5), " NEW", reviewer)
+    inserted = document.insert_revision(RevisionPosition("body:p:0", 5), "!", reviewer)
     assert inserted.after.revisions[0].raw_kind == "ins"
-
-    body = next(segment.text for segment in document.segments if segment.container_id == "body:p:0")
-    hello_start = body.index("Hello")
-    deleted = document.delete_revision(
-        RevisionRange("body:p:0", hello_start, hello_start + 5, "Hello"),
-        reviewer,
-    )
+    deleted = document.delete_revision(RevisionRange("body:p:1", 0, 5, "world"), reviewer)
     assert any(item.raw_kind == "del" for item in deleted.after.revisions)
-
-    body = next(segment.text for segment in document.segments if segment.container_id == "body:p:0")
-    world_start = body.index("world")
     _deleted, replaced = document.replace_revision(
-        RevisionRange("body:p:0", world_start, world_start + 5, "world"),
-        "there",
+        RevisionRange("body:p:2", 0, 5, "extra"),
+        "gone",
         reviewer,
     )
     assert any(item.raw_kind == "ins" for item in replaced.after.revisions)
@@ -90,6 +90,61 @@ def test_open_handle_comments_and_native_tracked_edits() -> None:
         )
     assert b"Revised note" not in comments_xml
     assert not root.xpath("//w:commentReference", namespaces=NS)
+
+
+def test_open_path_handle_publish_writes_back_to_source_file(tmp_path: Path) -> None:
+    path = tmp_path / "review.docx"
+    path.write_bytes(_docx("Hello", "world", "extra"))
+    original = path.read_bytes()
+    document = DocxDocument.open(path)
+    author = CommentAuthor("Reviewer", "RV", "2024-01-01T00:00:00Z")
+    reviewer = RevisionAuthor("Reviewer", "2024-01-01T00:00:00Z")
+
+    added = document.add_comment(
+        CommentRange("body:p:0", 0, 5, "Hello"),
+        "Neutral note",
+        author,
+    )
+    document.update_comment(added.receipt.created_ids[0], "Revised note")
+    document.remove_comments({added.receipt.created_ids[0]})
+    document.insert_revision(RevisionPosition("body:p:0", 5), "!", reviewer)
+    document.delete_revision(RevisionRange("body:p:1", 0, 5, "world"), reviewer)
+    document.replace_revision(RevisionRange("body:p:2", 0, 5, "extra"), "gone", reviewer)
+
+    receipt = document.publish()
+    assert receipt.destination == path
+    assert path.read_bytes() != original
+    reopened = DocxDocument.open(path)
+    root = _part_xml(path.read_bytes())
+    assert root.xpath("count(//w:ins)", namespaces=NS) >= 2
+    assert root.xpath("count(//w:del)", namespaces=NS) >= 2
+    assert not root.xpath("//w:commentReference", namespaces=NS)
+    assert reopened.comments == ()
+
+
+def test_publish_without_source_path_fails_closed() -> None:
+    document = DocxDocument.open_bytes(_docx())
+    with pytest.raises(PublishError, match="destination path"):
+        document.publish()
+
+
+def test_publish_validator_failure_leaves_opened_file_unchanged(tmp_path: Path) -> None:
+    path = tmp_path / "keep.docx"
+    path.write_bytes(_docx())
+    original = path.read_bytes()
+    document = DocxDocument.open(path)
+    document.add_comment(
+        CommentRange("body:p:0", 0, 5, "Hello"),
+        "Neutral note",
+        CommentAuthor("Reviewer"),
+    )
+
+    def reject(_path: Path) -> None:
+        raise ValueError("rejected")
+
+    with pytest.raises(PublishError, match="rejected"):
+        document.publish(validators=(reject,))
+    assert path.read_bytes() == original
 
 
 def test_open_handle_keeps_comment_across_tracked_insert() -> None:

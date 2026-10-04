@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
@@ -15,14 +15,6 @@ from docx.text.paragraph import Paragraph
 
 from .common import DOCX_MIME, DocumentBytes, DocumentError, output_filename
 from .docx_alternate_content import DocxAlternateContentOperations
-from .docx_comment_mutations import (
-    CommentAuthor,
-    CommentMutationResult,
-    CommentRange,
-    add_comment as add_comment_bytes,
-    remove_comments as remove_comments_bytes,
-    update_comment as update_comment_bytes,
-)
 from .docx_comments import (
     _collect_comments,
     _ensure_thread_parts,
@@ -30,6 +22,7 @@ from .docx_comments import (
     _restore_thread_sidecars,
     _unsupported_revision_reason,
 )
+from .docx_handle import DocxHandleOperations
 from .docx_inline import (
     _advances_offset,
     _copy_segment,
@@ -60,19 +53,8 @@ from .docx_mutations import (
     SurfaceReplacement,
     apply_surface_replacements,
 )
-from .docx_publish import PublishReceipt, publish_docx
 from .docx_review_inventory import inventory_review_markup
 from .docx_review_models import ReviewMarkupInventory
-from .docx_review_transaction import ReviewCommand, apply_review_batch
-from .docx_revision_mutations import (
-    RevisionAuthor,
-    RevisionMutationResult,
-    RevisionPosition,
-    RevisionRange,
-    delete_revision as delete_revision_bytes,
-    insert_revision as insert_revision_bytes,
-    replace_revision as replace_revision_bytes,
-)
 from .docx_stories import _ParaRef, index_stories
 from .docx_units import _paragraph_spans, _paragraph_visible_text, _replace_plain_range
 
@@ -100,7 +82,7 @@ __all__ = [
 ]
 
 
-class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations):
+class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations, DocxHandleOperations):
     """Open DOCX handle for mechanical text, comment, and tracked-change edits."""
 
     def __init__(
@@ -120,11 +102,14 @@ class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations):
         self._thread_parts: dict[str, tuple[bytes, str]] = {}
         self._note_parts: dict[str, tuple[Any, Any]] = {}
         self._source_bytes: bytes | None = None
+        self._source_path: Path | None = None
 
     @classmethod
     def open(cls, path: str | Path) -> DocxDocument:
         path = Path(path)
-        return cls.open_bytes(path.read_bytes(), filename=path.name)
+        instance = cls.open_bytes(path.read_bytes(), filename=path.name)
+        instance._source_path = path
+        return instance
 
     @classmethod
     def open_bytes(cls, data: bytes, *, filename: str = "document.docx") -> DocxDocument:
@@ -413,18 +398,6 @@ class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations):
     # ------------------------------------------------------------------
     # Save / bytes
     # ------------------------------------------------------------------
-    def publish(
-        self,
-        path: str | Path,
-        *,
-        validators: Iterable[Any] = (),
-    ) -> PublishReceipt:
-        """Publish through preservation, validation, and one atomic replace."""
-        return publish_docx(self.to_bytes(), path, source=self._source_bytes, validators=validators)
-
-    def save_docx(self, path: str | Path) -> None:
-        self.publish(path)
-
     def review_inventory(self) -> ReviewMarkupInventory:
         return inventory_review_markup(self.to_bytes())
 
@@ -433,75 +406,6 @@ class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations):
 
         payload = self._source_bytes if self._source_bytes is not None else self.to_bytes()
         return docx_facts(payload)
-
-    def apply_review_batch(self, commands: Sequence[ReviewCommand]) -> None:
-        receipt = apply_review_batch(self.to_bytes(), commands)
-        self._adopt_bytes(receipt.data)
-
-    def add_comment(
-        self,
-        target: CommentRange,
-        text: str,
-        author: CommentAuthor,
-    ) -> CommentMutationResult:
-        result = add_comment_bytes(self.to_bytes(), target, text, author)
-        self._adopt_bytes(result.data)
-        return result
-
-    def update_comment(
-        self,
-        comment_id: str,
-        text: str,
-        *,
-        expected_text: str | None = None,
-        author: CommentAuthor | None = None,
-    ) -> CommentMutationResult:
-        result = update_comment_bytes(
-            self.to_bytes(),
-            comment_id,
-            text,
-            expected_text=expected_text,
-            author=author,
-        )
-        self._adopt_bytes(result.data)
-        return result
-
-    def delete_comment(self, comment_id: str) -> CommentMutationResult:
-        return self.remove_comments({comment_id})
-
-    def remove_comments(self, comment_ids: set[str] | None = None) -> CommentMutationResult:
-        result = remove_comments_bytes(self.to_bytes(), comment_ids)
-        self._adopt_bytes(result.data)
-        return result
-
-    def insert_revision(
-        self,
-        position: RevisionPosition,
-        text: str,
-        reviewer: RevisionAuthor,
-    ) -> RevisionMutationResult:
-        result = insert_revision_bytes(self.to_bytes(), position, text, reviewer)
-        self._adopt_bytes(result.data)
-        return result
-
-    def delete_revision(
-        self,
-        target: RevisionRange,
-        reviewer: RevisionAuthor,
-    ) -> RevisionMutationResult:
-        result = delete_revision_bytes(self.to_bytes(), target, reviewer)
-        self._adopt_bytes(result.data)
-        return result
-
-    def replace_revision(
-        self,
-        target: RevisionRange,
-        replacement: str,
-        reviewer: RevisionAuthor,
-    ) -> tuple[RevisionMutationResult, RevisionMutationResult]:
-        deleted, inserted = replace_revision_bytes(self.to_bytes(), target, replacement, reviewer)
-        self._adopt_bytes(inserted.data)
-        return deleted, inserted
 
     def to_bytes(self) -> bytes:
         _ensure_thread_parts(self._doc.part.package, self._thread_parts)
@@ -519,10 +423,6 @@ class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
-
-    def _adopt_bytes(self, data: bytes) -> None:
-        replacement = type(self).open_bytes(data, filename=self.filename)
-        self.__dict__.update(replacement.__dict__)
 
     def _require_supported_revisions(self) -> None:
         reason = _unsupported_revision_reason(self._doc)
