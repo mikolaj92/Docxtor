@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import time
+import zipfile
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from docx import Document
@@ -22,6 +25,22 @@ from docxtor import (
     render_physical_review,
     restore_deleted_inline,
 )
+
+
+@pytest.fixture(autouse=True)
+def deterministic_archive_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep exact package-byte guards independent of ZIP's wall-clock timestamps.
+
+    python-docx serializes through ZipFile.writestr, which stamps each entry from
+    zipfile.time. Freeze only that module's clock facade, not document payloads
+    or byte comparisons; a public inline mutation must still change the bytes.
+    """
+    archive_time = time.localtime(1760000000.0)
+    monkeypatch.setattr(
+        zipfile,
+        "time",
+        SimpleNamespace(time=lambda: time.time(), localtime=lambda _seconds: archive_time),
+    )
 
 
 def _revision(
@@ -374,3 +393,22 @@ def test_removal_refuses_cached_locator_after_same_body_paragraph_reorder() -> N
         handle.remove_inserted_paragraph("body:p:0", expected_text="Inserted")
     assert handle.to_bytes() == before
     assert handle.texts == cached
+
+
+def test_exact_bytes_detect_payload_changes_across_wall_clock_rollover(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wall_clock = [1760000000.0]
+    monkeypatch.setattr(time, "time", lambda: wall_clock[0])
+    source = Document()
+    source.add_paragraph("Original")
+    handle = DocxDocument.open_bytes(_bytes(source))
+    before = handle.to_bytes()
+    wall_clock[0] += 2  # Cross the ZIP/DOS two-second timestamp boundary without any edit.
+    assert handle.to_bytes() == before
+    replacement = Document().add_paragraph("Changed")
+    rebuild_paragraph_from_inline(
+        handle.resolve_paragraph("body:p:0"), paragraph_to_inline_segments(replacement)
+    )
+    assert handle.to_bytes() != before
+    assert "".join(s.text for s in handle.get_inline_segments("body:p:0")) == "Changed"
