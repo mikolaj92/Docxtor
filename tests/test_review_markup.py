@@ -8,14 +8,16 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import pytest
 from docx import Document
 
-from docxtor.docx_comment_mutations import (
+from docxtor import (
     CommentAuthor,
     CommentMutationError,
     CommentRange,
-    add_comment,
-    remove_comments,
+    DocxDocument,
+    PublishError,
+    RevisionAuthor,
+    RevisionPosition,
+    RevisionRange,
 )
-from docxtor.docx_publish import PublishError, publish_docx
 from docxtor.docx_review_inventory import inventory_review_markup
 from docxtor.docx_review_models import OperationStatus, ReviewCoverage
 
@@ -29,9 +31,8 @@ def _docx(text: str = "Hello world") -> bytes:
 
 
 def test_add_read_and_remove_exact_comment_range() -> None:
-    source = _docx()
-    added = add_comment(
-        source,
+    document = DocxDocument.open_bytes(_docx())
+    added = document.add_comment(
         CommentRange("body:p:0", 6, 11, "world"),
         "Neutral note",
         CommentAuthor("Reviewer", "RV", "2024-01-01T00:00:00Z"),
@@ -46,43 +47,47 @@ def test_add_read_and_remove_exact_comment_range() -> None:
     assert comment.author == "Reviewer"
     assert comment.date == "2024-01-01T00:00:00Z"
 
-    inventory = inventory_review_markup(added.data)
+    inventory = inventory_review_markup(document.to_bytes())
     assert inventory.coverage is ReviewCoverage.COMPLETE
     assert inventory.comments == added.comments
 
-    removed = remove_comments(added.data, {"0"})
+    removed = document.remove_comments({"0"})
     assert removed.receipt.status is OperationStatus.APPLIED
     assert removed.comments == ()
     assert inventory_review_markup(removed.data).comments == ()
 
 
 def test_comment_preflight_failure_returns_no_partial_bytes() -> None:
-    source = _docx()
+    document = DocxDocument.open_bytes(_docx())
+    before = document.to_bytes()
     with pytest.raises(CommentMutationError, match="text changed"):
-        add_comment(
-            source,
+        document.add_comment(
             CommentRange("body:p:0", 6, 11, "stale"),
             "Note",
             CommentAuthor("Reviewer"),
         )
-    assert sha256(source).hexdigest() == sha256(source).hexdigest()
+    assert sha256(document.to_bytes()).hexdigest() == sha256(before).hexdigest()
 
 
 def test_publish_preserves_existing_target_on_validator_failure(tmp_path: Path) -> None:
-    destination = tmp_path / "published.docx"
-    destination.write_bytes(b"existing")
+    path = tmp_path / "keep.docx"
+    path.write_bytes(_docx())
+    original = path.read_bytes()
+    document = DocxDocument.open(path)
 
     def reject(_path: Path) -> None:
         raise ValueError("rejected")
 
     with pytest.raises(PublishError, match="rejected"):
-        publish_docx(_docx(), destination, validators=(reject,))
-    assert destination.read_bytes() == b"existing"
+        document.publish(validators=(reject,))
+    assert path.read_bytes() == original
 
 
 def test_publish_returns_receipt_and_normalizes_zip_timestamps(tmp_path: Path) -> None:
     destination = tmp_path / "published.docx"
-    receipt = publish_docx(_docx(), destination)
+    destination.write_bytes(_docx())
+    document = DocxDocument.open(destination)
+    receipt = document.publish()
     assert receipt.destination == destination
     assert receipt.size == destination.stat().st_size
     assert receipt.sha256 == sha256(destination.read_bytes()).hexdigest()
@@ -125,38 +130,29 @@ def test_batch_failure_does_not_return_partial_document() -> None:
     assert source.startswith(b"PK")
 
 
-def test_create_inline_and_paragraph_mark_revisions() -> None:
-    from docxtor.docx_revision_mutations import (
-        RevisionAuthor,
-        RevisionPosition,
-        RevisionRange,
-        delete_revision,
-        insert_revision,
-        mark_paragraph_revision,
-    )
-
-    source = _docx()
+def test_create_inline_revisions() -> None:
     reviewer = RevisionAuthor("Reviewer", "2024-01-01T00:00:00Z")
-    inserted = insert_revision(source, RevisionPosition("body:p:0", 5), " NEW", reviewer)
+    inserted = DocxDocument.open_bytes(_docx()).insert_revision(
+        RevisionPosition("body:p:0", 5),
+        " NEW",
+        reviewer,
+    )
     assert inserted.after.revisions[0].raw_kind == "ins"
-    deleted = delete_revision(source, RevisionRange("body:p:0", 6, 11, "world"), reviewer)
+    deleted = DocxDocument.open_bytes(_docx()).delete_revision(
+        RevisionRange("body:p:0", 6, 11, "world"),
+        reviewer,
+    )
     assert deleted.after.revisions[0].raw_kind == "del"
-    marked = mark_paragraph_revision(source, "body:p:0", "ins", reviewer)
-    assert marked.after.revisions[0].paragraph_mark is True
 
 
 def test_update_comment_rewrites_body_and_keeps_identity() -> None:
-    from docxtor import update_comment
-
-    source = _docx()
-    added = add_comment(
-        source,
+    document = DocxDocument.open_bytes(_docx())
+    added = document.add_comment(
         CommentRange("body:p:0", 6, 11, "world"),
         "Neutral note",
         CommentAuthor("Reviewer", "RV", "2024-01-01T00:00:00Z"),
     )
-    updated = update_comment(
-        added.data,
+    updated = document.update_comment(
         added.receipt.created_ids[0],
         "Revised note",
         expected_text="Neutral note",
@@ -174,20 +170,19 @@ def test_update_comment_rewrites_body_and_keeps_identity() -> None:
 
 
 def test_update_comment_preflight_failure_returns_no_partial_bytes() -> None:
-    from docxtor import update_comment
-
-    source = _docx()
-    added = add_comment(
-        source,
+    document = DocxDocument.open_bytes(_docx())
+    added = document.add_comment(
         CommentRange("body:p:0", 6, 11, "world"),
         "Neutral note",
         CommentAuthor("Reviewer"),
     )
-    digest = sha256(added.data).hexdigest()
+    digest = sha256(document.to_bytes()).hexdigest()
     with pytest.raises(CommentMutationError, match="changed"):
-        update_comment(added.data, added.receipt.created_ids[0], "Revised", expected_text="stale")
+        document.update_comment(
+            added.receipt.created_ids[0], "Revised", expected_text="stale"
+        )
     with pytest.raises(CommentMutationError, match="unknown comment ID"):
-        update_comment(added.data, "999", "Revised")
+        document.update_comment("999", "Revised")
     with pytest.raises(CommentMutationError, match="must not be empty"):
-        update_comment(added.data, added.receipt.created_ids[0], "")
-    assert sha256(added.data).hexdigest() == digest
+        document.update_comment(added.receipt.created_ids[0], "")
+    assert sha256(document.to_bytes()).hexdigest() == digest

@@ -7,7 +7,14 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import pytest
 from docx import Document as PyDocxDocument
 
-from docxtor import AddressableComment, DocxDocument, SegmentReplacement, UnsupportedRevisionError
+from docxtor import (
+    AddressableComment,
+    CommentAuthor,
+    CommentMutationError,
+    DocxDocument,
+    SegmentReplacement,
+    UnsupportedRevisionError,
+)
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _W14 = "{http://schemas.microsoft.com/office/word/2010/wordml}"
@@ -348,14 +355,12 @@ def test_comment_text_replacement_preserves_ids_anchors_metadata_and_sidecars(
 
 
 def test_update_comment_preserves_ids_anchors_metadata_and_sidecars(tmp_path: Path) -> None:
-    from docxtor import CommentAuthor, update_comment
-
     path = _inject_reply_and_sidecars(_plain_comment_docx(tmp_path / "update.docx"))
     original_markers = _comment_markers(path)
     original_authors = _comment_authors(path)
 
-    updated = update_comment(
-        path.read_bytes(),
+    document = DocxDocument.open_bytes(path.read_bytes())
+    updated = document.update_comment(
         "0",
         "redacted note",
         expected_text="check this clause",
@@ -397,8 +402,7 @@ def test_update_comment_preserves_ids_anchors_metadata_and_sidecars(tmp_path: Pa
     assert b"11111111" in ZipFile(out).read("word/commentsIds.xml")
     assert b"Ann Reviewer" in ZipFile(out).read("word/people.xml")
 
-    relabeled = update_comment(
-        updated.data,
+    relabeled = document.update_comment(
         "0",
         "redacted note",
         author=CommentAuthor("Editor", "ED", "2026-02-02T00:00:00Z"),
@@ -413,8 +417,6 @@ def test_update_comment_preserves_ids_anchors_metadata_and_sidecars(tmp_path: Pa
 
 
 def test_update_comment_rejects_multi_paragraph_body(tmp_path: Path) -> None:
-    from docxtor import CommentMutationError, update_comment
-
     path = _plain_comment_docx(tmp_path / "multi.docx")
     comments_root = ElementTree.fromstring(ZipFile(path).read("word/comments.xml"))
     comment = comments_root.find(f"{_W}comment")
@@ -433,7 +435,7 @@ def test_update_comment_rejects_multi_paragraph_body(tmp_path: Path) -> None:
     )
 
     with pytest.raises(CommentMutationError, match="multiple paragraphs"):
-        update_comment(path.read_bytes(), "0", "one paragraph")
+        DocxDocument.open_bytes(path.read_bytes()).update_comment("0", "one paragraph")
 
 
 def test_multiple_comment_runs_are_one_addressable_segment(tmp_path: Path) -> None:

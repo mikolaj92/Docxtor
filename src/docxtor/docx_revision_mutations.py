@@ -146,27 +146,6 @@ def replace_revision(
     return deleted, inserted
 
 
-def mark_paragraph_revision(
-    data: bytes,
-    locator: str,
-    kind: str,
-    reviewer: RevisionAuthor,
-) -> RevisionMutationResult:
-    if kind not in {"ins", "del"}:
-        raise RevisionMutationError("paragraph mark kind must be 'ins' or 'del'")
-    document, paragraph = _paragraph(data, locator)
-    revision_id = _next_revision_id(data)
-    ppr = paragraph._p.get_or_add_pPr()
-    rpr = ppr.find(qn("w:rPr"))
-    if rpr is None:
-        rpr = OxmlElement("w:rPr")
-        ppr.append(rpr)
-    if any(child.tag in {qn("w:ins"), qn("w:del")} for child in rpr):
-        raise RevisionMutationError(f"paragraph mark already has a revision at {locator}")
-    rpr.append(_revision_wrapper(kind, revision_id, reviewer))
-    return _result(data, document, f"paragraph_mark_{kind}", locator, revision_id)
-
-
 def _paragraph(data: bytes, locator: str) -> tuple[Any, Any]:
     document = PyDocxDocument(BytesIO(data))
     paragraph = index_stories(document).paragraphs_by_container.get(locator)

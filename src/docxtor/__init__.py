@@ -1,4 +1,4 @@
-__version__ = "0.15.0"
+__version__ = "0.16.0"
 
 from .common import (
     DOCX_MIME,
@@ -28,10 +28,6 @@ from .docx_comment_mutations import (
     CommentMutationError,
     CommentMutationResult,
     CommentRange,
-    add_comment,
-    add_paragraph_comment,
-    remove_comments,
-    update_comment,
 )
 from .docx_compare import compare_docx_documents
 from .docx_compare_models import (
@@ -145,7 +141,7 @@ from .docx_properties import (
     remove_core_keyword_values,
     set_core_keywords,
 )
-from .docx_publish import PublishError, PublishReceipt, publish_docx
+from .docx_publish import PublishError, PublishReceipt
 from .docx_review_inventory import inventory_review_markup
 from .docx_review_models import (
     CommentRevisionAssociation,
@@ -167,10 +163,6 @@ from .docx_revision_mutations import (
     RevisionMutationResult,
     RevisionPosition,
     RevisionRange,
-    delete_revision,
-    insert_revision,
-    mark_paragraph_revision,
-    replace_revision,
 )
 from .docx_revisions import (
     AcceptRevisionsError,
@@ -240,18 +232,10 @@ __all__ = [
     "RevisionMutationResult",
     "RevisionPosition",
     "RevisionRange",
-    "delete_revision",
-    "insert_revision",
-    "mark_paragraph_revision",
-    "replace_revision",
     "CommentAuthor",
     "CommentMutationError",
     "CommentMutationResult",
     "CommentRange",
-    "add_comment",
-    "add_paragraph_comment",
-    "remove_comments",
-    "update_comment",
     "PublishError",
     "DOCX_CROSS_REFERENCE_PROFILE_ID",
     "CrossReferenceDiagnostic",
@@ -263,7 +247,6 @@ __all__ = [
     "PackagePartChangeKind",
     "compare_docx_packages",
     "PublishReceipt",
-    "publish_docx",
     "AcceptRevisionsError",
     "RejectRevisionsError",
     "Revision",
