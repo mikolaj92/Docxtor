@@ -48,18 +48,38 @@ def _require_local_comment_ranges(
         raise DocumentError("inserted paragraph comment range is not balanced and local")
     local = Counter((node.get(qn("w:id")), node.tag) for node in markers)
     global_markers: Counter[tuple[str | None, str]] = Counter()
+    # Facts import the public document class; defer these mechanical helpers
+    # until the handle is fully initialized to avoid the module import cycle.
+    from .docx_facts import _content_type_for, _content_type_map, _content_types
+    from .docx_inventory import _is_xml_part
+
     # The serializer omits unlinked source parts. Retain those for validation,
-    # but use authoritative live XML for parts changed through the handle.
-    entries = {}
+    # including their source-only OPC type declarations. Live payload and type
+    # metadata replace stale source versions of the same logical part.
+    packages = []
     if source_bytes is not None:
-        entries.update(
-            (entry.name.casefold(), entry) for entry in read_package_entries(source_bytes)
+        packages.append(read_package_entries(source_bytes))
+    packages.append(read_package_entries(document.to_bytes()))
+    entries = {}
+    declared_xml = set()
+    for package in packages:
+        content_types = next(
+            (entry.data for entry in package if entry.name == "[Content_Types].xml"), None
         )
-    entries.update(
-        (entry.name.casefold(), entry) for entry in read_package_entries(document.to_bytes())
-    )
-    for entry in entries.values():
-        if not _needs_xml_validation(entry.name, entry.data):
+        if content_types is None:
+            raise DocumentError("DOCX package has no [Content_Types].xml")
+        defaults, overrides = _content_type_map(_content_types(content_types))
+        overrides = {name.casefold(): value for name, value in overrides.items()}
+        for entry in package:
+            name = entry.name.casefold()
+            entries[name] = entry
+            content_type = _content_type_for(name, defaults, overrides)
+            if _is_xml_part(content_type.casefold(), b""):
+                declared_xml.add(name)
+            else:
+                declared_xml.discard(name)
+    for name, entry in entries.items():
+        if name not in declared_xml and not _needs_xml_validation(entry.name, entry.data):
             continue
         root = parse_package_xml(entry.data, part_name=entry.name)
         global_markers.update(

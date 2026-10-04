@@ -411,6 +411,82 @@ def test_commented_insertion_uses_live_xml_instead_of_stale_source_part() -> Non
     assert handle._source_bytes == source_bytes
 
 
+def _declared_source_only_comment_part(
+    declaration: str, part_name: str, prefix_length: int, *, malformed: bool = False
+) -> bytes:
+    source = _commented_insertion_with_external_markers(part_name, linked=False)
+    output = BytesIO()
+    with (
+        zipfile.ZipFile(BytesIO(source)) as package,
+        zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as augmented,
+    ):
+        for entry in package.infolist():
+            payload = package.read(entry)
+            if entry.filename == "[Content_Types].xml":
+                root = etree.fromstring(payload)
+                attributes = {
+                    "ContentType": (
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"
+                    ),
+                }
+                if declaration == "Default":
+                    attributes["Extension"] = part_name.rsplit(".", 1)[1].upper()
+                else:
+                    attributes["PartName"] = f"/{part_name.upper()}"
+                etree.SubElement(root, f"{{{root.nsmap[None]}}}{declaration}", **attributes)
+                payload = etree.tostring(root)
+            elif entry.filename == part_name:
+                payload = b" " * prefix_length + (b"<unclosed" if malformed else payload)
+            augmented.writestr(entry, payload)
+    return output.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("declaration", "part_name", "prefix_length"),
+    [
+        ("Override", "parts/header.payload", 65535),
+        ("Override", "parts/header.payload", 65536),
+        ("Default", "parts/header.payload", 65535),
+        ("Default", "parts/header.payload", 65536),
+        ("Override", "custom/HEADER.Payload", 65536),
+        ("Default", "custom/HEADER.Payload", 65536),
+    ],
+)
+def test_commented_insertion_honors_source_only_declared_xml_beyond_sniff_window(
+    tmp_path: Path, declaration: str, part_name: str, prefix_length: int
+) -> None:
+    source_bytes = _declared_source_only_comment_part(declaration, part_name, prefix_length)
+    source_path = tmp_path / "declared.docx"
+    source_path.write_bytes(source_bytes)
+    handle = DocxDocument.open(source_path)
+    before = handle.to_bytes()
+    with zipfile.ZipFile(BytesIO(source_bytes)) as original:
+        assert etree.fromstring(original.read(part_name)).tag == qn("w:hdr")
+        assert declaration.encode() in original.read("[Content_Types].xml")
+    with zipfile.ZipFile(BytesIO(before)) as live:
+        assert part_name not in live.namelist()
+        assert b"header.payload" not in live.read("[Content_Types].xml").lower()
+        assert b'Extension="PAYLOAD"' not in live.read("[Content_Types].xml")
+    with pytest.raises(DocumentError, match="extend outside"):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+    assert source_path.read_bytes() == source_bytes
+
+
+@pytest.mark.parametrize("declaration", ["Override", "Default"])
+def test_commented_insertion_refuses_invalid_declared_source_only_xml(declaration: str) -> None:
+    source_bytes = _declared_source_only_comment_part(
+        declaration, "parts/header.payload", 65536, malformed=True
+    )
+    handle = DocxDocument.open_bytes(source_bytes)
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError, match="invalid"):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+
+
 def test_removal_refuses_inserted_paragraph_carrying_source_section_properties() -> None:
     source = Document()
     source.add_paragraph("Before")
