@@ -172,3 +172,12 @@ class InlineSegment:
     text: str
     rpr: Any | None = None
     element: Any | None = None
+
+
+@dataclass(frozen=True)
+class InlineRevisionGroup:
+    """Adjacent physical revision wrappers, or one ordinary inline segment."""
+
+    segments: tuple[InlineSegment, ...]
+    kind: Literal["ins", "del"] | None
+    text: str
