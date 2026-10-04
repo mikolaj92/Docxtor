@@ -391,6 +391,9 @@ insert/delete/replace (`w:ins` / `w:del`) run on that same file.
 Repeated `add_comment` calls on the same sentence, including a span that already
 contains native comment markers, each add another Word comment
 (`w:commentRangeStart` / `w:commentRangeEnd` / comment part).
+Tracked insert/delete/replace wrap the named characters when that span sits
+in the middle of an existing comment, revision, bookmark, or hyperlink, and
+refuse instead of reporting success for a range they did not wrap.
 `publish()` with no arguments writes back to the path passed to
 `DocxDocument.open`. If the handle was opened from bytes and has no path,
 `publish()` fails closed. Docxtor does not invent a second review markup format.
