@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from docx import Document
+from docx.opc.packuri import PackURI
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from lxml import etree
@@ -324,6 +325,90 @@ def test_removal_refuses_table_story_without_mutating_package() -> None:
     with pytest.raises(DocumentError, match="supported body story"):
         handle.remove_inserted_paragraph(locator, expected_text="Inserted")
     assert handle.to_bytes() == before
+
+
+def _comment_marker_paragraph(paragraph) -> None:
+    for name in ("commentRangeStart", "commentRangeEnd", "commentReference"):
+        marker = OxmlElement(f"w:{name}")
+        marker.set(qn("w:id"), "10")
+        if name == "commentReference":
+            run = OxmlElement("w:r")
+            run.append(marker)
+            paragraph.append(run)
+        else:
+            paragraph.append(marker)
+
+
+def _commented_insertion_with_external_markers(part_name: str, *, linked: bool) -> bytes:
+    source = Document()
+    source.add_paragraph("Before")
+    inserted = source.add_paragraph()
+    _comment_marker_paragraph(inserted._p)
+    inserted._p.insert(1, _revision("ins", "Inserted"))
+    source.add_paragraph("After")
+    if linked:
+        header = source.sections[0].header
+        _comment_marker_paragraph(header.paragraphs[0]._p)
+        header.part._partname = PackURI(f"/{part_name}")
+        return _bytes(source)
+    orphan = OxmlElement("w:hdr")
+    paragraph = OxmlElement("w:p")
+    _comment_marker_paragraph(paragraph)
+    orphan.append(paragraph)
+    output = BytesIO()
+    with (
+        zipfile.ZipFile(BytesIO(_bytes(source))) as package,
+        zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as augmented,
+    ):
+        for entry in package.infolist():
+            augmented.writestr(entry, package.read(entry))
+        augmented.writestr(part_name, etree.tostring(orphan))
+    return output.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("part_name", "linked"),
+    [
+        ("word/header1.xml", True),
+        ("custom/header1.xml", True),
+        ("word/header1.XML", True),
+        ("custom/header1.payload", True),
+        ("word/orphan.xml", False),
+        ("custom/orphan.payload", False),
+    ],
+)
+def test_commented_insertion_refuses_markers_in_any_live_or_source_only_xml_part(
+    tmp_path: Path,
+    part_name: str,
+    linked: bool,
+) -> None:
+    source_bytes = _commented_insertion_with_external_markers(part_name, linked=linked)
+    source_path = tmp_path / "source.docx"
+    source_path.write_bytes(source_bytes)
+    handle = DocxDocument.open(source_path)
+    before = handle.to_bytes()
+    before_paragraphs = [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()]
+    with zipfile.ZipFile(BytesIO(before)) as live_package:
+        assert (part_name in live_package.namelist()) is linked
+    with pytest.raises(DocumentError, match="extend outside"):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+    assert source_path.read_bytes() == source_bytes
+    assert [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()] == before_paragraphs
+
+
+def test_commented_insertion_uses_live_xml_instead_of_stale_source_part() -> None:
+    source_bytes = _commented_insertion_with_external_markers("word/header1.xml", linked=True)
+    handle = DocxDocument.open_bytes(source_bytes)
+    header_paragraph = handle._doc.sections[0].header.paragraphs[0]._p
+    for child in list(header_paragraph):
+        header_paragraph.remove(child)
+    before = [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()]
+    handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    after = [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()]
+    assert after == before[:1] + before[2:]
+    assert handle._source_bytes == source_bytes
 
 
 def test_removal_refuses_inserted_paragraph_carrying_source_section_properties() -> None:

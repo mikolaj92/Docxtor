@@ -6,7 +6,7 @@ from typing import Any
 from docx.oxml.ns import qn
 
 from .common import DocumentError
-from .docx_package import parse_package_xml, read_package_entries
+from .docx_package import _needs_xml_validation, parse_package_xml, read_package_entries
 
 _COMMENT_MARKERS = tuple(
     qn(f"w:{name}") for name in ("commentRangeStart", "commentRangeEnd", "commentReference")
@@ -25,7 +25,9 @@ def _is_comment_annotation(element: Any) -> bool:
     )
 
 
-def _require_local_comment_ranges(document: Any, paragraph: Any) -> None:
+def _require_local_comment_ranges(
+    document: Any, paragraph: Any, *, source_bytes: bytes | None
+) -> None:
     markers = [node for node in paragraph._p.iter() if node.tag in _COMMENT_MARKERS]
     if not markers:
         return
@@ -46,8 +48,18 @@ def _require_local_comment_ranges(document: Any, paragraph: Any) -> None:
         raise DocumentError("inserted paragraph comment range is not balanced and local")
     local = Counter((node.get(qn("w:id")), node.tag) for node in markers)
     global_markers: Counter[tuple[str | None, str]] = Counter()
-    for entry in read_package_entries(document.to_bytes()):
-        if not entry.name.startswith("word/") or not entry.name.endswith(".xml"):
+    # The serializer omits unlinked source parts. Retain those for validation,
+    # but use authoritative live XML for parts changed through the handle.
+    entries = {}
+    if source_bytes is not None:
+        entries.update(
+            (entry.name.casefold(), entry) for entry in read_package_entries(source_bytes)
+        )
+    entries.update(
+        (entry.name.casefold(), entry) for entry in read_package_entries(document.to_bytes())
+    )
+    for entry in entries.values():
+        if not _needs_xml_validation(entry.name, entry.data):
             continue
         root = parse_package_xml(entry.data, part_name=entry.name)
         global_markers.update(
@@ -114,7 +126,7 @@ class DocxParagraphMutationOperations:
             )
         ):
             raise DocumentError("paragraph is not the expected entirely inserted content")
-        _require_local_comment_ranges(current, paragraph)
+        _require_local_comment_ranges(current, paragraph, source_bytes=self._source_bytes)
         self._require_supported_revisions()
         parent.remove(paragraph._p)
         replacement = self._from_pydocx(self._doc, filename=self.filename)
