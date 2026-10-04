@@ -1,10 +1,62 @@
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from docx.oxml.ns import qn
 
 from .common import DocumentError
+from .docx_package import parse_package_xml, read_package_entries
+
+_COMMENT_MARKERS = tuple(
+    qn(f"w:{name}") for name in ("commentRangeStart", "commentRangeEnd", "commentReference")
+)
+
+
+def _is_comment_annotation(element: Any) -> bool:
+    if element.tag in _COMMENT_MARKERS[:2]:
+        return True
+    return (
+        element.tag == qn("w:r")
+        and len(element) == 1
+        and element[0].tag == _COMMENT_MARKERS[2]
+        and not element.attrib
+        and not (element.text or "").strip()
+    )
+
+
+def _require_local_comment_ranges(document: Any, paragraph: Any) -> None:
+    markers = [node for node in paragraph._p.iter() if node.tag in _COMMENT_MARKERS]
+    if not markers:
+        return
+    ordered: dict[str, list[str]] = {}
+    for marker in markers:
+        comment_id = marker.get(qn("w:id"))
+        if (
+            comment_id is None
+            or not comment_id.isdecimal()
+            or set(marker.attrib) != {qn("w:id")}
+            or len(marker)
+            or (marker.text or "").strip()
+            or (marker.tail or "").strip()
+        ):
+            raise DocumentError("inserted paragraph carries malformed comment annotations")
+        ordered.setdefault(comment_id, []).append(marker.tag)
+    if any(tags != list(_COMMENT_MARKERS) for tags in ordered.values()):
+        raise DocumentError("inserted paragraph comment range is not balanced and local")
+    local = Counter((node.get(qn("w:id")), node.tag) for node in markers)
+    global_markers: Counter[tuple[str | None, str]] = Counter()
+    for entry in read_package_entries(document.to_bytes()):
+        if not entry.name.startswith("word/") or not entry.name.endswith(".xml"):
+            continue
+        root = parse_package_xml(entry.data, part_name=entry.name)
+        global_markers.update(
+            (node.get(qn("w:id")), node.tag)
+            for node in root.iter()
+            if node.tag in _COMMENT_MARKERS and node.get(qn("w:id")) in ordered
+        )
+    if global_markers != local:
+        raise DocumentError("inserted paragraph comment annotations extend outside the paragraph")
 
 
 class DocxParagraphMutationOperations:
@@ -21,7 +73,8 @@ class DocxParagraphMutationOperations:
     def remove_inserted_paragraph(self, container_id: str, *, expected_text: str) -> None:
         """Remove an entirely inserted paragraph after exact physical text validation.
 
-        Mixed source content and opaque payload outside insertion wrappers fail closed.
+        Balanced paragraph-local comment annotations may accompany insertion wrappers.
+        Mixed source content and other opaque payload outside wrappers fail closed.
         Reindex surviving paragraphs, spans and stories after removal.
         """
         paragraph = self.resolve_paragraph(container_id)
@@ -46,13 +99,22 @@ class DocxParagraphMutationOperations:
             or inserted != expected_text
             or any(span.role != "insertion" and span.text for span in spans)
             or any(
+                element.tag not in {qn("w:pPr"), qn("w:ins")}
+                and not _is_comment_annotation(element)
+                for element in paragraph._p
+            )
+            or any(
                 segment.kind != "opaque"
                 or segment.element is None
-                or segment.element.tag != qn("w:ins")
+                or (
+                    segment.element.tag != qn("w:ins")
+                    and not _is_comment_annotation(segment.element)
+                )
                 for segment in segments
             )
         ):
             raise DocumentError("paragraph is not the expected entirely inserted content")
+        _require_local_comment_ranges(current, paragraph)
         self._require_supported_revisions()
         parent.remove(paragraph._p)
         replacement = self._from_pydocx(self._doc, filename=self.filename)

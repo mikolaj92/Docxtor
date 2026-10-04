@@ -412,3 +412,120 @@ def test_exact_bytes_detect_payload_changes_across_wall_clock_rollover(
     )
     assert handle.to_bytes() != before
     assert "".join(s.text for s in handle.get_inline_segments("body:p:0")) == "Changed"
+
+
+def test_remove_commented_inserted_paragraph_keeps_source_and_other_package_members(
+    tmp_path: Path,
+) -> None:
+    source = Document()
+    original = source.add_paragraph()
+    original.paragraph_format.keep_with_next = True
+    run = original.add_run("[OSOBA_1] Source ")
+    run.bold = True
+    source.add_comment(run, text="Source comment", author="Source")
+    source.add_paragraph("After")
+    source_path = tmp_path / "source.docx"
+    source_bytes = _bytes(source)
+    source_path.write_bytes(source_bytes)
+    reviewed = tmp_path / "reviewed.docx"
+    render_physical_review(
+        source_path,
+        reviewed,
+        PhysicalReviewPlan(
+            edits=(
+                PhysicalReviewEdit(
+                    action_id="commented-insertion",
+                    locator="body:p:0",
+                    operation="insert",
+                    start_offset=0,
+                    end_offset=0,
+                    replacement_text="Inserted [OSOBA_2]",
+                    new_paragraph=True,
+                    comment_text="Insertion comment",
+                ),
+            )
+        ),
+    )
+    reviewed_bytes = reviewed.read_bytes()
+    handle = DocxDocument.open(reviewed)
+    before = [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()]
+    handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted [OSOBA_2]")
+    assert [p.value for p in handle.paragraph_resolutions] == ["[OSOBA_1] Source ", "After"]
+    assert [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()] == [before[0], before[2]]
+    output = tmp_path / "removed.docx"
+    handle.publish(output)
+    with zipfile.ZipFile(reviewed) as original_package, zipfile.ZipFile(output) as result_package:
+        assert original_package.namelist() == result_package.namelist()
+        for member in original_package.namelist():
+            if member != "word/document.xml":
+                assert original_package.read(member) == result_package.read(member)
+    assert source_path.read_bytes() == source_bytes
+    assert reviewed.read_bytes() == reviewed_bytes
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "cross_end",
+        "cross_reference",
+        "duplicate_start",
+        "missing_reference",
+        "wrong_order",
+        "source_opaque",
+        "source_empty_run",
+        "reference_payload",
+        "missing_id",
+        "section",
+        "stale",
+    ],
+)
+def test_remove_commented_insertion_refuses_unsafe_annotations_without_mutation(
+    invalid: str,
+) -> None:
+    source = Document()
+    source.add_paragraph("Before")
+    inserted = source.add_paragraph()
+    after = source.add_paragraph("After")
+    markers = []
+    for name in ("commentRangeStart", "commentRangeEnd", "commentReference"):
+        marker = OxmlElement(f"w:{name}")
+        marker.set(qn("w:id"), "10")
+        markers.append(marker)
+    start, end, reference = markers
+    reference_run = OxmlElement("w:r")
+    reference_run.append(reference)
+    inserted._p.append(start)
+    inserted._p.append(_revision("ins", "Inserted"))
+    inserted._p.append(end)
+    inserted._p.append(reference_run)
+    if invalid == "cross_end":
+        after._p.append(end)
+    elif invalid == "cross_reference":
+        extra = OxmlElement("w:commentReference")
+        extra.set(qn("w:id"), "10")
+        after._p.append(extra)
+    elif invalid == "duplicate_start":
+        extra = OxmlElement("w:commentRangeStart")
+        extra.set(qn("w:id"), "10")
+        inserted._p.insert(0, extra)
+    elif invalid == "missing_reference":
+        inserted._p.remove(reference_run)
+    elif invalid == "wrong_order":
+        inserted._p.insert(0, end)
+    elif invalid == "source_opaque":
+        inserted._p.append(OxmlElement("w:sdt"))
+    elif invalid == "source_empty_run":
+        inserted.add_run("").bold = True
+    elif invalid == "reference_payload":
+        reference_run.append(OxmlElement("w:drawing"))
+    elif invalid == "missing_id":
+        del start.attrib[qn("w:id")]
+    elif invalid == "section":
+        inserted._p.get_or_add_pPr().append(OxmlElement("w:sectPr"))
+    handle = DocxDocument.open_bytes(_bytes(source))
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError):
+        handle.remove_inserted_paragraph(
+            "body:p:1", expected_text="Stale" if invalid == "stale" else "Inserted"
+        )
+    assert handle.to_bytes() == before
