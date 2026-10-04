@@ -487,6 +487,143 @@ def test_commented_insertion_refuses_invalid_declared_source_only_xml(declaratio
     assert handle._source_bytes == source_bytes
 
 
+def _change_source_content_types(source: bytes, edit) -> bytes:
+    output = BytesIO()
+    with (
+        zipfile.ZipFile(BytesIO(source)) as package,
+        zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as augmented,
+    ):
+        for entry in package.infolist():
+            payload = package.read(entry)
+            if entry.filename == "[Content_Types].xml":
+                root = etree.fromstring(payload)
+                edit(root)
+                payload = etree.tostring(root)
+            augmented.writestr(entry, payload)
+    return output.getvalue()
+
+
+@pytest.mark.parametrize("declaration", ["Override", "Default"])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("mixed_case", [False, True])
+def test_commented_insertion_refuses_duplicate_content_type_keys_before_mapping(
+    tmp_path: Path, declaration: str, reverse: bool, mixed_case: bool
+) -> None:
+    source = _declared_source_only_comment_part(declaration, "parts/header.payload", 65536)
+
+    def duplicate(root) -> None:
+        original = root[-1]
+        extra = etree.SubElement(root, original.tag, **original.attrib)
+        extra.set("ContentType", "application/octet-stream")
+        if mixed_case:
+            key = "Extension" if declaration == "Default" else "PartName"
+            extra.set(key, extra.get(key).lower())
+        if reverse:
+            original.set("ContentType", "application/octet-stream")
+            extra.set(
+                "ContentType",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml",
+            )
+
+    source_bytes = _change_source_content_types(source, duplicate)
+    source_path = tmp_path / "ambiguous.docx"
+    source_path.write_bytes(source_bytes)
+    handle = DocxDocument.open(source_path)
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError, match="ambiguous content type"):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+    assert source_path.read_bytes() == source_bytes
+
+
+@pytest.mark.parametrize("declaration", ["Override", "Default"])
+def test_commented_insertion_recognizes_declared_xml_with_media_type_parameters(
+    declaration: str,
+) -> None:
+    source = _declared_source_only_comment_part(declaration, "parts/header.payload", 65536)
+
+    def parameters(root) -> None:
+        original = root[-1]
+        original.set("ContentType", original.get("ContentType") + "; charset=utf-8")
+
+    source_bytes = _change_source_content_types(source, parameters)
+    handle = DocxDocument.open_bytes(source_bytes)
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError, match="extend outside"):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+
+
+@pytest.mark.parametrize("invalid", ["missing_type", "unresolved_part", "invalid_part"])
+def test_commented_insertion_refuses_unusable_content_type_declarations(invalid: str) -> None:
+    source = _declared_source_only_comment_part("Override", "parts/header.payload", 65536)
+
+    def invalidate(root) -> None:
+        original = root[-1]
+        if invalid == "missing_type":
+            del original.attrib["ContentType"]
+        else:
+            original.set(
+                "PartName",
+                "/parts/missing.payload" if invalid == "unresolved_part"
+                else "/parts/../header.payload",
+            )
+
+    source_bytes = _change_source_content_types(source, invalidate)
+    handle = DocxDocument.open_bytes(source_bytes)
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+
+
+def test_commented_insertion_keeps_distinct_opc_declarations_and_default_override_pair() -> None:
+    source = _declared_source_only_comment_part("Override", "parts/header.payload", 65536)
+
+    def distinct(root) -> None:
+        namespace = root.nsmap[None]
+        etree.SubElement(
+            root, f"{{{namespace}}}Default", Extension="payload",
+            ContentType="application/octet-stream",
+        )
+        # An unused Default is legal OPC metadata, as is an Override taking precedence.
+        etree.SubElement(
+            root, f"{{{namespace}}}Default", Extension="unused",
+            ContentType="application/octet-stream",
+        )
+
+    source = _change_source_content_types(source, distinct)
+    output = BytesIO()
+    with (
+        zipfile.ZipFile(BytesIO(source)) as package,
+        zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as augmented,
+    ):
+        for entry in package.infolist():
+            payload = package.read(entry)
+            if entry.filename == "parts/header.payload":
+                payload = payload.replace(b'id="10"', b'id="77"')
+            elif entry.filename == "[Content_Types].xml":
+                root = etree.fromstring(payload)
+                etree.SubElement(
+                    root, f"{{{root.nsmap[None]}}}Override", PartName="/other/header.payload",
+                    ContentType="application/octet-stream",
+                )
+                payload = etree.tostring(root)
+            augmented.writestr(entry, payload)
+        augmented.writestr("other/header.payload", b"Original binary payload")
+    source_bytes = output.getvalue()
+    handle = DocxDocument.open_bytes(source_bytes)
+    original_paragraphs = [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()]
+    handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert [_xml(p._p) for _i, _loc, p in handle.get_indexed_paragraphs()] == [
+        original_paragraphs[0], original_paragraphs[2]
+    ]
+    assert handle._source_bytes == source_bytes
+
+
 def test_removal_refuses_inserted_paragraph_carrying_source_section_properties() -> None:
     source = Document()
     source.add_paragraph("Before")

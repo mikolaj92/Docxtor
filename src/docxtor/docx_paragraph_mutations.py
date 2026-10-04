@@ -6,7 +6,12 @@ from typing import Any
 from docx.oxml.ns import qn
 
 from .common import DocumentError
-from .docx_package import _needs_xml_validation, parse_package_xml, read_package_entries
+from .docx_package import (
+    _is_valid_package_member_name,
+    _needs_xml_validation,
+    parse_package_xml,
+    read_package_entries,
+)
 
 _COMMENT_MARKERS = tuple(
     qn(f"w:{name}") for name in ("commentRangeStart", "commentRangeEnd", "commentReference")
@@ -68,13 +73,28 @@ def _require_local_comment_ranges(
         )
         if content_types is None:
             raise DocumentError("DOCX package has no [Content_Types].xml")
-        defaults, overrides = _content_type_map(_content_types(content_types))
+        facts = _content_types(content_types)
+        keys = set()
+        package_names = {entry.name.casefold() for entry in package}
+        for fact in facts:
+            # Supported member names are ASCII; defaults use the owner's lower()
+            # extension matching. Keep Override and Default namespaces separate.
+            key = (fact.is_default, fact.key.lower())
+            if key in keys:
+                raise DocumentError("DOCX package has ambiguous content type declarations")
+            keys.add(key)
+            if not fact.is_default and (
+                not _is_valid_package_member_name(fact.key)
+                or fact.key.casefold() not in package_names
+            ):
+                raise DocumentError("DOCX content type Override does not resolve to a valid part")
+        defaults, overrides = _content_type_map(facts)
         overrides = {name.casefold(): value for name, value in overrides.items()}
         for entry in package:
             name = entry.name.casefold()
             entries[name] = entry
             content_type = _content_type_for(name, defaults, overrides)
-            if _is_xml_part(content_type.casefold(), b""):
+            if _is_xml_part(content_type.partition(";")[0].strip().casefold(), b""):
                 declared_xml.add(name)
             else:
                 declared_xml.discard(name)
