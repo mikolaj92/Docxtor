@@ -305,3 +305,72 @@ def test_removal_refuses_table_story_without_mutating_package() -> None:
     with pytest.raises(DocumentError, match="supported body story"):
         handle.remove_inserted_paragraph(locator, expected_text="Inserted")
     assert handle.to_bytes() == before
+
+
+def test_removal_refuses_inserted_paragraph_carrying_source_section_properties() -> None:
+    source = Document()
+    source.add_paragraph("Before")
+    source.add_section()
+    paragraph = source.paragraphs[-1]
+    paragraph._p.append(_revision("ins", "Inserted"))
+    source.add_paragraph("After")
+    source_bytes = _bytes(source)
+    handle = DocxDocument.open_bytes(source_bytes)
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError, match="section"):
+        handle.remove_inserted_paragraph("body:p:1", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle._source_bytes == source_bytes
+    assert len(Document(BytesIO(handle.to_bytes())).sections) == 2
+
+
+def test_removal_checks_live_text_after_public_inline_rebuild() -> None:
+    source = Document()
+    source.add_paragraph()._p.append(_revision("ins", "Original insertion"))
+    source.add_paragraph("After")
+    handle = DocxDocument.open_bytes(_bytes(source))
+    replacement = Document().add_paragraph()
+    replacement._p.append(_revision("ins", "Changed insertion"))
+    rebuild_paragraph_from_inline(
+        handle.resolve_paragraph("body:p:0"), paragraph_to_inline_segments(replacement)
+    )
+    before = handle.to_bytes()
+    with pytest.raises(DocumentError, match="expected entirely inserted"):
+        handle.remove_inserted_paragraph("body:p:0", expected_text="Original insertion")
+    assert handle.to_bytes() == before
+    assert "".join(s.text for s in handle.get_inline_segments("body:p:0")) == "Changed insertion"
+    handle.remove_inserted_paragraph("body:p:0", expected_text="Changed insertion")
+    assert handle.texts == ["After"]
+
+
+def test_removal_refuses_cached_paragraph_attached_to_foreign_body() -> None:
+    source = Document()
+    source.add_paragraph()._p.append(_revision("ins", "Inserted"))
+    source.add_paragraph("After")
+    handle = DocxDocument.open_bytes(_bytes(source))
+    paragraph = handle.resolve_paragraph("body:p:0")
+    paragraph._p.getparent().remove(paragraph._p)
+    foreign_body = OxmlElement("w:body")
+    foreign_body.append(paragraph._p)
+    before = handle.to_bytes()
+    foreign_before = _xml(foreign_body)
+    with pytest.raises(DocumentError, match="supported body story"):
+        handle.remove_inserted_paragraph("body:p:0", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert _xml(foreign_body) == foreign_before
+
+
+def test_removal_refuses_cached_locator_after_same_body_paragraph_reorder() -> None:
+    source = Document()
+    source.add_paragraph()._p.append(_revision("ins", "Inserted"))
+    source.add_paragraph("After")
+    handle = DocxDocument.open_bytes(_bytes(source))
+    paragraph = handle.resolve_paragraph("body:p:0")
+    after = handle.resolve_paragraph("body:p:1")
+    after._p.addnext(paragraph._p)
+    before = handle.to_bytes()
+    cached = handle.texts
+    with pytest.raises(DocumentError, match="same paragraph"):
+        handle.remove_inserted_paragraph("body:p:0", expected_text="Inserted")
+    assert handle.to_bytes() == before
+    assert handle.texts == cached

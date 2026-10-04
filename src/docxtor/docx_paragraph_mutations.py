@@ -27,9 +27,20 @@ class DocxParagraphMutationOperations:
         paragraph = self.resolve_paragraph(container_id)
         if paragraph is None:
             raise DocumentError("inserted paragraph locator does not resolve")
-        spans = [span for span in self.spans if span.container_id == container_id]
+        parent = paragraph._p.getparent()
+        if parent is not self._doc.element.body:
+            raise DocumentError("inserted paragraph is not attached to a supported body story")
+        if paragraph._p.find(f"{qn('w:pPr')}/{qn('w:sectPr')}") is not None:
+            raise DocumentError("inserted paragraph carries protected section properties")
+        current = self._from_pydocx(self._doc, filename=self.filename)
+        indexed = current.resolve_paragraph(container_id)
+        if indexed is None or indexed._p is not paragraph._p:
+            raise DocumentError(
+                "inserted paragraph locator no longer identifies the same paragraph"
+            )
+        spans = [span for span in current.spans if span.container_id == container_id]
         inserted = "".join(span.text for span in spans if span.role == "insertion")
-        segments = self.get_inline_segments(container_id)
+        segments = current.get_inline_segments(container_id)
         if (
             not inserted
             or inserted != expected_text
@@ -42,9 +53,6 @@ class DocxParagraphMutationOperations:
             )
         ):
             raise DocumentError("paragraph is not the expected entirely inserted content")
-        parent = paragraph._p.getparent()
-        if parent is None or parent.tag != qn("w:body"):
-            raise DocumentError("inserted paragraph is not attached to a supported body story")
         self._require_supported_revisions()
         parent.remove(paragraph._p)
         replacement = self._from_pydocx(self._doc, filename=self.filename)

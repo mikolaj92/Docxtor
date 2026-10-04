@@ -389,7 +389,8 @@ pending. It refuses inconsistent group/text identity. The caller supplies the
 accept/reject decision; these helpers contain no review policy.
 
 `document.remove_inserted_paragraph(container_id, expected_text=...)` removes an
-entirely inserted body paragraph after exact text validation and refreshes the
-remaining addresses. Mixed source text, unattached/unsupported stories, or
-opaque content outside insertion wrappers fail closed. Source files remain
-unchanged; publish through the existing document handle after all edits succeed.
+entirely inserted body paragraph after live physical text and locator identity
+validation, and refreshes the remaining addresses. Mixed source text, section
+properties, stale locators, foreign/unattached/unsupported stories, or opaque
+content outside insertion wrappers fail closed. Source files remain unchanged;
+publish through the existing document handle after all edits succeed.
