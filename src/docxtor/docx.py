@@ -51,6 +51,7 @@ from .docx_mutations import (
     SurfaceReplacement,
     apply_surface_replacements,
 )
+from .docx_paragraph_mutations import DocxParagraphMutationOperations
 from .docx_publish import PublishReceipt, publish_docx
 from .docx_review_inventory import inventory_review_markup
 from .docx_review_models import ReviewMarkupInventory
@@ -82,7 +83,7 @@ __all__ = [
 ]
 
 
-class DocxDocument(DocxLocatorOperations):
+class DocxDocument(DocxLocatorOperations, DocxParagraphMutationOperations):
     """DOCX editing surface backed by python-docx."""
 
     def __init__(

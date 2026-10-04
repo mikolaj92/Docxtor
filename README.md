@@ -374,3 +374,22 @@ if not comparison.compliant:
 
 `compare_docx` detects lost containers, broken relationships, part drift, and
 unintended surface modifications without parsing raw XML in consumer code.
+
+### Selective inline revision restoration
+
+`group_inline_revisions(document.get_inline_segments(container_id))` returns
+`InlineRevisionGroup` values. Only adjacent insertion/deletion wrappers sharing
+an explicit revision id, author and date are grouped; missing-id wrappers and
+ordinary content stay separate. Call it per paragraph.
+
+`restore_deleted_inline(group)` clones a selected deletion into canonical
+`InlineSegment` values for `rebuild_paragraph_from_inline`. It preserves run
+properties, opaque controls/fields and whitespace, and leaves nested revisions
+pending. It refuses inconsistent group/text identity. The caller supplies the
+accept/reject decision; these helpers contain no review policy.
+
+`document.remove_inserted_paragraph(container_id, expected_text=...)` removes an
+entirely inserted body paragraph after exact text validation and refreshes the
+remaining addresses. Mixed source text, unattached/unsupported stories, or
+opaque content outside insertion wrappers fail closed. Source files remain
+unchanged; publish through the existing document handle after all edits succeed.

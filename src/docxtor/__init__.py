@@ -76,6 +76,7 @@ from .docx_facts import (
     compare_docx,
     docx_facts,
 )
+from .docx_inline import group_inline_revisions, restore_deleted_inline
 from .docx_inventory import (
     DocumentSurface,
     DocxInventory,
@@ -86,7 +87,13 @@ from .docx_inventory import (
     SurfaceVisibility,
     inventory_docx,
 )
-from .docx_models import ParagraphLocator, ParagraphResolution, RunLocator, RunResolution
+from .docx_models import (
+    InlineRevisionGroup,
+    ParagraphLocator,
+    ParagraphResolution,
+    RunLocator,
+    RunResolution,
+)
 from .docx_mutations import (
     SurfaceDisposition,
     SurfaceDispositionStatus,
@@ -271,6 +278,9 @@ __all__ = [
     "SurfaceReplacement",
     "SurfaceVisibility",
     "inventory_docx",
+    "InlineRevisionGroup",
+    "group_inline_revisions",
+    "restore_deleted_inline",
     "InlineSegment",
     "InlineSegmentKind",
     "ParagraphLocator",

@@ -1,15 +1,80 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Sequence
 from typing import Any
 
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
-from .docx_models import InlineSegment
+from .common import DocumentError
+from .docx_models import InlineRevisionGroup, InlineSegment
 from .docx_ns import _TEXT_NODE_TAGS
 from .docx_xml import _is_text_box_container
+
+
+def _revision_identity(segment: InlineSegment) -> tuple[Any, ...] | None:
+    element = segment.element
+    if segment.kind != "opaque" or element is None:
+        return None
+    if element.tag not in {qn("w:ins"), qn("w:del")}:
+        return None
+    return (element.tag, *(element.get(qn(f"w:{key}")) for key in ("id", "author", "date")))
+
+
+def group_inline_revisions(segments: Sequence[InlineSegment]) -> tuple[InlineRevisionGroup, ...]:
+    """Group only adjacent wrappers with the same present id, author and date.
+
+    A missing id never joins wrappers. Ordinary content remains a singleton.
+    Call per paragraph; groups never cross paragraph or intervening-content boundaries.
+    """
+    result: list[InlineRevisionGroup] = []
+    index = 0
+    while index < len(segments):
+        first = segments[index]
+        identity = _revision_identity(first)
+        end = index + 1
+        if identity is not None and identity[1] is not None:
+            while end < len(segments) and _revision_identity(segments[end]) == identity:
+                end += 1
+        selected = tuple(segments[index:end])
+        kind = None if identity is None else "ins" if identity[0] == qn("w:ins") else "del"
+        result.append(InlineRevisionGroup(selected, kind, "".join(item.text for item in selected)))
+        index = end
+    return tuple(result)
+
+
+def restore_deleted_inline(group: InlineRevisionGroup) -> tuple[InlineSegment, ...]:
+    """Unwrap selected deletions without resolving any nested pending revision.
+
+    Returned canonical segments preserve run properties and opaque payloads.
+    Input carriers are never mutated; invalid group or text identity fails closed.
+    """
+    if group.kind != "del" or not group.segments:
+        raise DocumentError("inline restoration requires a nonempty deletion group")
+    projected = group_inline_revisions(group.segments)
+    if len(projected) != 1 or projected[0].kind != "del" or projected[0].text != group.text:
+        raise DocumentError("deleted inline group identity or text does not match")
+    restored: list[InlineSegment] = []
+    for segment in group.segments:
+        payload = copy.deepcopy(segment.element)
+        _restore_deleted_text(payload)
+        # The wrapper's direct children have the same inline grammar as a paragraph.
+        items = paragraph_to_inline_segments(Paragraph(payload, None))
+        if "".join(item.text for item in items) != segment.text:
+            raise DocumentError("restored deleted inline text does not match")
+        restored.extend(items)
+    return tuple(restored)
+
+
+def _restore_deleted_text(element: Any) -> None:
+    for child in element:
+        if child.tag in {qn("w:ins"), qn("w:del"), qn("w:moveFrom"), qn("w:moveTo")}:
+            continue
+        if child.tag == qn("w:delText"):
+            child.tag = qn("w:t")
+        _restore_deleted_text(child)
 
 
 def _advances_offset(segment: InlineSegment) -> bool:
