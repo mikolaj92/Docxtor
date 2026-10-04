@@ -34,7 +34,8 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git
 ```
 
-Pin `v0.8.0` or later for qualified package surfaces, OPC graph, combined transactions, remove/cascade, and global postflight. Pin `v0.7.0` or later for complete mechanical facts snapshot (`DocxFactsSnapshot`) and structural comparison (`compare_docx`). `v0.6.0` introduced neutral Word review markup, typed operation receipts, and atomic DOCX publication. `v0.5.2` introduced complete package inventory,
+Pin `v0.16.0` or later for the open-handle comment, tracked-edit, and in-place
+publish surface. Pin `v0.8.0` or later for qualified package surfaces, OPC graph, combined transactions, remove/cascade, and global postflight. Pin `v0.7.0` or later for complete mechanical facts snapshot (`DocxFactsSnapshot`) and structural comparison (`compare_docx`). `v0.6.0` introduced neutral Word review markup, typed operation receipts, and atomic DOCX publication. `v0.5.2` introduced complete package inventory,
 neutral surface capabilities, and verified surface mutations. Earlier `v0.4.x` tags include
 stable text/revision/comment addressing but not the complete inventory contract.
 Tag `v0.4.1` still ships distribution version `0.4.0`; `v0.4.4` was the first
@@ -389,22 +390,18 @@ accepted = accept_all_revisions_bytes(doc.to_bytes(), drop_comments=False)
 insert/delete/replace (`w:ins` / `w:del`) run on that same file.
 `publish()` with no arguments writes back to the path passed to
 `DocxDocument.open`. If the handle was opened from bytes and has no path,
-`publish()` fails closed. Byte-level `add_comment`, `update_comment`,
-`remove_comments`, `insert_revision`, `delete_revision`, and
-`replace_revision` remain available. Docxtor does not invent a second review
-markup format.
+`publish()` fails closed. Docxtor does not invent a second review markup format.
 
 `inventory_review_markup()` and `inventory_revisions_bytes()` distinguish an
 empty document from incomplete coverage. Unsupported structural revisions fail
 closed. `apply_review_batch()` returns no intermediate bytes if any command
 fails.
 
-Use `DocxDocument.publish()` to write the opened file in place, or
-`publish(path)` for an explicit destination. It serializes in memory,
-preserves semantically unchanged source XML, normalizes ZIP timestamps, validates
-the complete package, runs optional validators, and performs one atomic replace.
-The returned `PublishReceipt` identifies the exact published bytes. A failure
-before replacement leaves an existing destination byte-for-byte unchanged.
+`publish()` serializes in memory, preserves semantically unchanged source XML,
+normalizes ZIP timestamps, validates the complete package, runs optional
+validators, and performs one atomic replace. The returned `PublishReceipt`
+identifies the exact published bytes. A failure before replacement leaves an
+existing destination byte-for-byte unchanged.
 
 #### Optional Open XML SDK validation
 

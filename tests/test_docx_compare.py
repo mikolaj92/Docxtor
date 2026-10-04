@@ -14,12 +14,12 @@ from docx import Document as PyDocxDocument
 from lxml import etree
 
 from docxtor import (
+    DocxDocument,
     RevisionAuthor,
     RevisionRange,
     accept_all_revisions_bytes,
     compare_docx_documents,
 )
-from docxtor.docx_revision_mutations import replace_revision
 
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _NS = {"w": _W}
@@ -171,8 +171,8 @@ def test_repeated_paragraphs_remain_aligned_after_one_inserted_paragraph() -> No
 
 def test_accepting_tracked_replacement_keeps_text_diff_empty_and_reports_lifecycle() -> None:
     original = _docx(("The notice period is 14 days.",))
-    reviewed = replace_revision(
-        original,
+    document = DocxDocument.open_bytes(original)
+    reviewed = document.replace_revision(
         RevisionRange("body:p:0", 21, 23, expected_text="14"),
         "30",
         RevisionAuthor("Word reviewer"),

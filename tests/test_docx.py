@@ -1077,3 +1077,26 @@ def test_package_root_does_not_export_private_helpers() -> None:
         if name.startswith("_") and name != "__version__" and not name.startswith("__")
     )
     assert leaked == []
+
+
+def test_package_root_does_not_export_byte_level_review_mutations() -> None:
+    """Comment, revision, and publish writes are public only on DocxDocument."""
+    import docxtor
+
+    leaked = sorted(
+        name
+        for name in (*docxtor.__all__, *dir(docxtor))
+        if name
+        in {
+            "add_comment",
+            "add_paragraph_comment",
+            "delete_revision",
+            "insert_revision",
+            "mark_paragraph_revision",
+            "publish_docx",
+            "remove_comments",
+            "replace_revision",
+            "update_comment",
+        }
+    )
+    assert leaked == []
