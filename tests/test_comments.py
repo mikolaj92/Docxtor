@@ -347,6 +347,95 @@ def test_comment_text_replacement_preserves_ids_anchors_metadata_and_sidecars(
     assert "people.xml" in rels
 
 
+def test_update_comment_preserves_ids_anchors_metadata_and_sidecars(tmp_path: Path) -> None:
+    from docxtor import CommentAuthor, update_comment
+
+    path = _inject_reply_and_sidecars(_plain_comment_docx(tmp_path / "update.docx"))
+    original_markers = _comment_markers(path)
+    original_authors = _comment_authors(path)
+
+    updated = update_comment(
+        path.read_bytes(),
+        "0",
+        "redacted note",
+        expected_text="check this clause",
+    )
+    out = tmp_path / "update-out.docx"
+    out.write_bytes(updated.data)
+
+    reopened = DocxDocument.open_bytes(updated.data)
+    by_id = {comment.comment_id: comment for comment in reopened.comments}
+    assert by_id["0"].text == "redacted note"
+    assert by_id["0"].author == "Ann Reviewer"
+    assert by_id["0"].initials == "AR"
+    assert by_id["0"].locator == "body:p:0"
+    assert by_id["0"].anchor_text == "Clause text."
+    assert by_id["1"].text == "agreed, verify"
+    assert by_id["1"].parent_id == "0"
+    assert by_id["1"].author == "Bob Reviewer"
+    assert _comment_markers(out) == original_markers
+    assert _comment_authors(out) == original_authors
+
+    names = set(ZipFile(out).namelist())
+    assert "word/commentsExtended.xml" in names
+    assert "word/commentsIds.xml" in names
+    assert "word/people.xml" in names
+    comments_xml = ZipFile(out).read("word/comments.xml").decode("utf-8")
+    assert "check this clause" not in comments_xml
+    assert _comment_attr(out, "0", f"{_W}id") == "0"
+    assert _comment_attr(out, "0", f"{_W}author") == "Ann Reviewer"
+    parent_para = next(
+        paragraph
+        for comment in _comment_tree(out).findall(f"{_W}comment")
+        if comment.get(f"{_W}id") == "0"
+        for paragraph in comment.findall(f"{_W}p")
+    )
+    assert parent_para.get(f"{_W14}paraId") == "AAAA0001"
+    extended = ZipFile(out).read("word/commentsExtended.xml")
+    assert b"BBBB0002" in extended and b"AAAA0001" in extended
+    assert b'paraIdParent="AAAA0001"' in extended
+    assert b"11111111" in ZipFile(out).read("word/commentsIds.xml")
+    assert b"Ann Reviewer" in ZipFile(out).read("word/people.xml")
+
+    relabeled = update_comment(
+        updated.data,
+        "0",
+        "redacted note",
+        author=CommentAuthor("Editor", "ED", "2026-02-02T00:00:00Z"),
+    )
+    edited = next(comment for comment in relabeled.comments if comment.comment_id == "0")
+    assert edited.author == "Editor"
+    assert edited.initials == "ED"
+    assert edited.date == "2026-02-02T00:00:00Z"
+    assert edited.locator == "body:p:0"
+    assert edited.anchor_text == "Clause text."
+    assert edited.parent_id is None
+
+
+def test_update_comment_rejects_multi_paragraph_body(tmp_path: Path) -> None:
+    from docxtor import CommentMutationError, update_comment
+
+    path = _plain_comment_docx(tmp_path / "multi.docx")
+    comments_root = ElementTree.fromstring(ZipFile(path).read("word/comments.xml"))
+    comment = comments_root.find(f"{_W}comment")
+    assert comment is not None
+    extra = ElementTree.SubElement(comment, f"{_W}p")
+    extra_run = ElementTree.SubElement(extra, f"{_W}r")
+    extra_text = ElementTree.SubElement(extra_run, f"{_W}t")
+    extra_text.text = "second paragraph"
+    _zip_replace(
+        path,
+        {
+            "word/comments.xml": ElementTree.tostring(
+                comments_root, encoding="UTF-8", xml_declaration=True
+            )
+        },
+    )
+
+    with pytest.raises(CommentMutationError, match="multiple paragraphs"):
+        update_comment(path.read_bytes(), "0", "one paragraph")
+
+
 def test_multiple_comment_runs_are_one_addressable_segment(tmp_path: Path) -> None:
     path = _multi_run_comment_docx(tmp_path / "runs.docx")
     out = tmp_path / "runs-out.docx"

@@ -361,19 +361,34 @@ from docxtor import (
     CommentAuthor,
     CommentRange,
     DocxDocument,
-    add_comment,
+    RevisionAuthor,
+    RevisionRange,
     accept_all_revisions_bytes,
 )
 
-source = DocxDocument.open("input.docx").to_bytes()
-commented = add_comment(
-    source,
+doc = DocxDocument.open("input.docx")
+author = CommentAuthor("Reviewer", "RV", "2026-01-01T00:00:00Z")
+reviewer = RevisionAuthor("Reviewer", "2026-01-01T00:00:00Z")
+added = doc.add_comment(
     CommentRange("body:p:0", 0, 5, expected_text="Hello"),
     "Check this range",
-    CommentAuthor("Reviewer", "RV", "2026-01-01T00:00:00Z"),
+    author,
 )
-accepted = accept_all_revisions_bytes(commented.data, drop_comments=False)
+doc.update_comment(added.receipt.created_ids[0], "Revised note")
+doc.replace_revision(
+    RevisionRange("body:p:0", 6, 11, expected_text="world"),
+    "there",
+    reviewer,
+)
+doc.delete_comment(added.receipt.created_ids[0])
+accepted = accept_all_revisions_bytes(doc.to_bytes(), drop_comments=False)
 ```
+
+`DocxDocument` is the open DOCX handle. Comment add/update/delete and tracked
+insert/delete/replace (`w:ins` / `w:del`) run on that same file. Byte-level
+`add_comment`, `update_comment`, `remove_comments`, `insert_revision`,
+`delete_revision`, and `replace_revision` remain available. Docxtor does not
+invent a second review markup format.
 
 `inventory_review_markup()` and `inventory_revisions_bytes()` distinguish an
 empty document from incomplete coverage. Unsupported structural revisions fail

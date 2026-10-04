@@ -143,3 +143,51 @@ def test_create_inline_and_paragraph_mark_revisions() -> None:
     assert deleted.after.revisions[0].raw_kind == "del"
     marked = mark_paragraph_revision(source, "body:p:0", "ins", reviewer)
     assert marked.after.revisions[0].paragraph_mark is True
+
+
+def test_update_comment_rewrites_body_and_keeps_identity() -> None:
+    from docxtor import update_comment
+
+    source = _docx()
+    added = add_comment(
+        source,
+        CommentRange("body:p:0", 6, 11, "world"),
+        "Neutral note",
+        CommentAuthor("Reviewer", "RV", "2024-01-01T00:00:00Z"),
+    )
+    updated = update_comment(
+        added.data,
+        added.receipt.created_ids[0],
+        "Revised note",
+        expected_text="Neutral note",
+    )
+    assert updated.receipt.status is OperationStatus.APPLIED
+    assert updated.receipt.operation == "update_comment"
+    comment = updated.comments[0]
+    assert comment.comment_id == added.receipt.created_ids[0]
+    assert comment.text == "Revised note"
+    assert comment.locator == "body:p:0"
+    assert comment.anchor_text == "world"
+    assert comment.author == "Reviewer"
+    assert comment.initials == "RV"
+    assert comment.date == "2024-01-01T00:00:00Z"
+
+
+def test_update_comment_preflight_failure_returns_no_partial_bytes() -> None:
+    from docxtor import update_comment
+
+    source = _docx()
+    added = add_comment(
+        source,
+        CommentRange("body:p:0", 6, 11, "world"),
+        "Neutral note",
+        CommentAuthor("Reviewer"),
+    )
+    digest = sha256(added.data).hexdigest()
+    with pytest.raises(CommentMutationError, match="changed"):
+        update_comment(added.data, added.receipt.created_ids[0], "Revised", expected_text="stale")
+    with pytest.raises(CommentMutationError, match="unknown comment ID"):
+        update_comment(added.data, "999", "Revised")
+    with pytest.raises(CommentMutationError, match="must not be empty"):
+        update_comment(added.data, added.receipt.created_ids[0], "")
+    assert sha256(added.data).hexdigest() == digest
