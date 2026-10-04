@@ -7,6 +7,7 @@ from typing import Any, cast
 
 from docx import Document as PyDocxDocument
 from docx.oxml.ns import qn
+from docx.text.run import Run
 
 from .common import DocumentError
 from .docx_comments import (
@@ -21,7 +22,7 @@ from .docx_inline import (
     paragraph_to_inline_segments,
     rebuild_paragraph_from_inline,
 )
-from .docx_models import AddressableComment
+from .docx_models import AddressableComment, InlineSegment
 from .docx_review_models import OperationReceipt, OperationStatus
 from .docx_stories import index_stories
 from .docx_units import _paragraph_visible_text, _replace_plain_range
@@ -83,21 +84,30 @@ def add_comment(
     end_index = _index_at_visible_offset(segments, target.end_offset) - 1
     if start_index < 0 or end_index < start_index:
         raise CommentMutationError(f"comment range cannot be represented at {target.locator}")
-    if any(segment.kind != "text" for segment in segments[start_index : end_index + 1]):
+    chosen = segments[start_index : end_index + 1]
+    if any(segment.kind != "text" and not _is_comment_markup(segment) for segment in chosen):
         raise CommentMutationError(f"comment range crosses opaque content at {target.locator}")
     rebuild_paragraph_from_inline(paragraph, segments)
-    runs = paragraph.runs
+    start_run, end_run = _comment_range_runs(paragraph, segments, start_index, end_index)
     comment = doc.comments.add_comment(text=text, author=author.author, initials=author.initials)
     if author.date is not None:
         comment._comment_elm.set(qn("w:date"), author.date)
     comment_id = int(comment.comment_id)
-    runs[start_index].mark_comment_range(runs[end_index], comment_id)
-    # Rebuild places opaque markers verbatim; python-docx then serializes all parts.
+    start_run.mark_comment_range(end_run, comment_id)
+    # Rebuild places existing comment markers verbatim; python-docx then serializes all parts.
     payload = _serialize(doc)
     after = index_stories(PyDocxDocument(BytesIO(payload)))
     created = next((item for item in after.comments if item.comment_id == str(comment_id)), None)
     if created is None or created.locator != target.locator or created.anchor_text != selected:
         raise CommentMutationError("comment creation was not confirmed after round-trip")
+    before_comments = {
+        item.comment_id: (item.text, item.anchor_text, item.locator) for item in stories.comments
+    }
+    after_by_id = {item.comment_id: item for item in after.comments}
+    for comment_id_before, snapshot in before_comments.items():
+        kept = after_by_id.get(comment_id_before)
+        if kept is None or (kept.text, kept.anchor_text, kept.locator) != snapshot:
+            raise CommentMutationError("existing comments were not preserved")
     return CommentMutationResult(
         data=payload,
         receipt=OperationReceipt(
@@ -244,6 +254,54 @@ def remove_comments(data: bytes, comment_ids: set[str] | None = None) -> Comment
         ),
         comments=tuple(after.comments),
     )
+
+
+_COMMENT_MARKUP_TAGS = {
+    qn("w:commentRangeStart"),
+    qn("w:commentRangeEnd"),
+    qn("w:commentReference"),
+}
+
+
+def _is_comment_markup(segment: InlineSegment) -> bool:
+    """True for native Word comment markers with no visible width."""
+    element = segment.element
+    if segment.text or element is None:
+        return False
+    if element.tag in _COMMENT_MARKUP_TAGS:
+        return True
+    if element.tag != qn("w:r"):
+        return False
+    children = [child for child in element if child.tag != qn("w:rPr")]
+    return bool(children) and all(child.tag in _COMMENT_MARKUP_TAGS for child in children)
+
+
+def _comment_range_runs(
+    paragraph: Any,
+    segments: list[InlineSegment],
+    start_index: int,
+    end_index: int,
+) -> tuple[Any, Any]:
+    """Map the visible text slice to the rebuilt runs python-docx should mark."""
+    emitted_indices = [
+        index for index, segment in enumerate(segments) if segment.kind == "opaque" or segment.text
+    ]
+    children = [child for child in paragraph._p if child.tag != qn("w:pPr")]
+    if len(children) != len(emitted_indices):
+        raise CommentMutationError("comment range cannot be mapped after rebuild")
+    by_segment = dict(zip(emitted_indices, children, strict=True))
+    text_indices = [
+        index
+        for index in range(start_index, end_index + 1)
+        if segments[index].kind == "text" and segments[index].text
+    ]
+    if not text_indices:
+        raise CommentMutationError("comment range cannot be represented after rebuild")
+    first = by_segment[text_indices[0]]
+    last = by_segment[text_indices[-1]]
+    if first.tag != qn("w:r") or last.tag != qn("w:r"):
+        raise CommentMutationError("comment range cannot be mapped to runs")
+    return Run(first, paragraph), Run(last, paragraph)
 
 
 def _story_roots(doc: Any) -> list[Any]:

@@ -388,6 +388,9 @@ accepted = accept_all_revisions_bytes(doc.to_bytes(), drop_comments=False)
 
 `DocxDocument` is the open DOCX handle. Comment add/update/remove and tracked
 insert/delete/replace (`w:ins` / `w:del`) run on that same file.
+Repeated `add_comment` calls on the same sentence, including a span that already
+contains native comment markers, each add another Word comment
+(`w:commentRangeStart` / `w:commentRangeEnd` / comment part).
 `publish()` with no arguments writes back to the path passed to
 `DocxDocument.open`. If the handle was opened from bytes and has no path,
 `publish()` fails closed. Docxtor does not invent a second review markup format.
