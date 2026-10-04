@@ -1,4 +1,4 @@
-__version__ = "0.14.4"
+__version__ = "0.15.0"
 
 from .common import (
     DOCX_MIME,
@@ -31,6 +31,7 @@ from .docx_comment_mutations import (
     add_comment,
     add_paragraph_comment,
     remove_comments,
+    update_comment,
 )
 from .docx_compare import compare_docx_documents
 from .docx_compare_models import (
@@ -250,6 +251,7 @@ __all__ = [
     "add_comment",
     "add_paragraph_comment",
     "remove_comments",
+    "update_comment",
     "PublishError",
     "DOCX_CROSS_REFERENCE_PROFILE_ID",
     "CrossReferenceDiagnostic",

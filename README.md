@@ -361,26 +361,46 @@ from docxtor import (
     CommentAuthor,
     CommentRange,
     DocxDocument,
-    add_comment,
+    RevisionAuthor,
+    RevisionRange,
     accept_all_revisions_bytes,
 )
 
-source = DocxDocument.open("input.docx").to_bytes()
-commented = add_comment(
-    source,
+doc = DocxDocument.open("input.docx")
+author = CommentAuthor("Reviewer", "RV", "2026-01-01T00:00:00Z")
+reviewer = RevisionAuthor("Reviewer", "2026-01-01T00:00:00Z")
+added = doc.add_comment(
     CommentRange("body:p:0", 0, 5, expected_text="Hello"),
     "Check this range",
-    CommentAuthor("Reviewer", "RV", "2026-01-01T00:00:00Z"),
+    author,
 )
-accepted = accept_all_revisions_bytes(commented.data, drop_comments=False)
+doc.update_comment(added.receipt.created_ids[0], "Revised note")
+doc.replace_revision(
+    RevisionRange("body:p:0", 6, 11, expected_text="world"),
+    "there",
+    reviewer,
+)
+doc.remove_comments({added.receipt.created_ids[0]})
+doc.publish()
+accepted = accept_all_revisions_bytes(doc.to_bytes(), drop_comments=False)
 ```
+
+`DocxDocument` is the open DOCX handle. Comment add/update/remove and tracked
+insert/delete/replace (`w:ins` / `w:del`) run on that same file.
+`publish()` with no arguments writes back to the path passed to
+`DocxDocument.open`. If the handle was opened from bytes and has no path,
+`publish()` fails closed. Byte-level `add_comment`, `update_comment`,
+`remove_comments`, `insert_revision`, `delete_revision`, and
+`replace_revision` remain available. Docxtor does not invent a second review
+markup format.
 
 `inventory_review_markup()` and `inventory_revisions_bytes()` distinguish an
 empty document from incomplete coverage. Unsupported structural revisions fail
 closed. `apply_review_batch()` returns no intermediate bytes if any command
 fails.
 
-Use `DocxDocument.publish(path)` for file output. It serializes in memory,
+Use `DocxDocument.publish()` to write the opened file in place, or
+`publish(path)` for an explicit destination. It serializes in memory,
 preserves semantically unchanged source XML, normalizes ZIP timestamps, validates
 the complete package, runs optional validators, and performs one atomic replace.
 The returned `PublishReceipt` identifies the exact published bytes. A failure

@@ -10,6 +10,11 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 from .common import DocumentError
+from .docx_comments import (
+    _ensure_thread_parts,
+    _existing_comments_part,
+    _restore_thread_sidecars,
+)
 from .docx_inline import (
     _index_at_visible_offset,
     _split_visible_offset,
@@ -20,6 +25,7 @@ from .docx_inline import (
 from .docx_models import AddressableComment
 from .docx_review_models import OperationReceipt, OperationStatus
 from .docx_stories import index_stories
+from .docx_units import _paragraph_visible_text, _replace_plain_range
 
 
 class CommentMutationError(DocumentError):
@@ -108,6 +114,79 @@ def add_comment(
     )
 
 
+def update_comment(
+    data: bytes,
+    comment_id: str,
+    text: str,
+    *,
+    expected_text: str | None = None,
+    author: CommentAuthor | None = None,
+) -> CommentMutationResult:
+    """Rewrite one comment body by id, keeping anchors, identity, and thread parts."""
+    if not text:
+        raise CommentMutationError("comment text must not be empty")
+    document = PyDocxDocument(BytesIO(data))
+    stories = index_stories(document)
+    existing = next(
+        (comment for comment in stories.comments if comment.comment_id == comment_id),
+        None,
+    )
+    if existing is None:
+        raise CommentMutationError(f"unknown comment ID: {comment_id}")
+    if expected_text is not None and existing.text != expected_text:
+        raise CommentMutationError(f"comment text changed at {comment_id}")
+    extra = [
+        segment
+        for segment in stories.segments
+        if (segment.container_id or "").startswith(f"comment:{comment_id}:")
+        and segment.container_id != existing.container_id
+    ]
+    if extra:
+        raise CommentMutationError(f"comment {comment_id} spans multiple paragraphs")
+    paragraph = stories.paragraphs_by_container.get(existing.container_id)
+    if paragraph is None:
+        raise CommentMutationError(f"unknown comment locator: {existing.container_id}")
+    visible = _paragraph_visible_text(paragraph)
+    if visible:
+        _replace_plain_range(paragraph._p, 0, len(visible), text)
+    elif paragraph.runs:
+        paragraph.runs[0].text = text
+    else:
+        paragraph.add_run(text)
+    if author is not None:
+        _apply_comment_author(document, comment_id, author)
+    payload = _serialize(document, thread_parts=stories.thread_parts)
+    after = index_stories(PyDocxDocument(BytesIO(payload)))
+    updated = next((item for item in after.comments if item.comment_id == comment_id), None)
+    if (
+        updated is None
+        or updated.text != text
+        or updated.locator != existing.locator
+        or updated.anchor_text != existing.anchor_text
+        or updated.parent_id != existing.parent_id
+    ):
+        raise CommentMutationError("comment update was not confirmed after round-trip")
+    if author is None and (
+        updated.author != existing.author
+        or updated.initials != existing.initials
+        or updated.date != existing.date
+    ):
+        raise CommentMutationError("comment update was not confirmed after round-trip")
+    return CommentMutationResult(
+        data=payload,
+        receipt=OperationReceipt(
+            operation="update_comment",
+            status=OperationStatus.APPLIED,
+            affected_parts=("word/comments.xml",),
+            created_ids=(),
+            locator=existing.locator,
+            before_sha256=sha256(data).hexdigest(),
+            after_sha256=sha256(payload).hexdigest(),
+        ),
+        comments=tuple(after.comments),
+    )
+
+
 def remove_comments(data: bytes, comment_ids: set[str] | None = None) -> CommentMutationResult:
     """Remove selected comments (or every comment) and all range/reference markers."""
     doc = PyDocxDocument(BytesIO(data))
@@ -184,10 +263,31 @@ def _story_roots(doc: Any) -> list[Any]:
     return roots
 
 
-def _serialize(doc: Any) -> bytes:
+def _apply_comment_author(document: Any, comment_id: str, author: CommentAuthor) -> None:
+    comments_part = _existing_comments_part(document)
+    if comments_part is None:
+        raise CommentMutationError(f"unknown comment ID: {comment_id}")
+    for comment in comments_part.element.findall(qn("w:comment")):
+        if comment.get(qn("w:id")) != comment_id:
+            continue
+        comment.set(qn("w:author"), author.author)
+        if author.initials is not None:
+            comment.set(qn("w:initials"), author.initials)
+        if author.date is not None:
+            comment.set(qn("w:date"), author.date)
+        return
+    raise CommentMutationError(f"unknown comment ID: {comment_id}")
+
+
+def _serialize(doc: Any, thread_parts: dict[str, tuple[bytes, str]] | None = None) -> bytes:
+    if thread_parts:
+        _ensure_thread_parts(doc.part.package, thread_parts)
     buffer = BytesIO()
     doc.save(buffer)
-    return buffer.getvalue()
+    payload = buffer.getvalue()
+    if thread_parts:
+        return _restore_thread_sidecars(payload, thread_parts)
+    return payload
 
 
 def add_paragraph_comment(
