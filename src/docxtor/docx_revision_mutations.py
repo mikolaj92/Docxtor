@@ -12,15 +12,26 @@ from docx.oxml.ns import qn
 
 from .common import DocumentError
 from .docx_inline import (
-    _index_at_visible_offset,
-    _split_visible_offset,
+    _descendant_visible_text,
+    _inline_width,
     _visible_text,
     paragraph_to_inline_segments,
-    rebuild_paragraph_from_inline,
 )
+from .docx_ns import _TEXT_NODE_TAGS
 from .docx_review_models import OperationReceipt, OperationStatus
 from .docx_revisions import RevisionInventory, inventory_revisions_bytes
 from .docx_stories import index_stories
+from .docx_xml import _is_text_box_container
+
+_XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+_TRANSPARENT_WRAPPERS = {qn("w:hyperlink"), qn("w:ins")}
+_MARKUP_TAGS = {
+    qn("w:commentRangeStart"),
+    qn("w:commentRangeEnd"),
+    qn("w:bookmarkStart"),
+    qn("w:bookmarkEnd"),
+}
+_COMMENT_REFERENCE = qn("w:commentReference")
 
 
 class RevisionMutationError(DocumentError):
@@ -55,6 +66,14 @@ class RevisionMutationResult:
     after: RevisionInventory
 
 
+@dataclass(frozen=True)
+class _LivePiece:
+    kind: str
+    text: str
+    run: Any | None
+    markup: bool
+
+
 def insert_revision(
     data: bytes,
     position: RevisionPosition,
@@ -64,30 +83,30 @@ def insert_revision(
     if not text:
         raise RevisionMutationError("inserted revision text must not be empty")
     document, paragraph = _paragraph(data, position.locator)
-    segments = paragraph_to_inline_segments(paragraph)
-    visible = _visible_text(segments)
+    _explode_runs(paragraph._p)
+    visible = _aligned_visible_text(paragraph, position.locator)
     if not 0 <= position.offset <= len(visible):
         raise RevisionMutationError(f"invalid insertion offset for {position.locator}")
-    segments = _split_visible_offset(segments, position.offset)
-    insertion_index = _index_at_visible_offset(segments, position.offset)
-    rebuild_paragraph_from_inline(paragraph, segments)
+    _split_at_visible(paragraph, position.offset)
     revision_id = _next_revision_id(data)
     wrapper = _revision_wrapper("ins", revision_id, reviewer)
     run = OxmlElement("w:r")
-    template = _nearby_run(paragraph, insertion_index)
-    if template is not None and template.rPr is not None:
-        run.append(deepcopy(template.rPr))
+    template = _rpr_near_offset(paragraph, position.offset)
+    if template is not None:
+        run.append(deepcopy(template))
     node = OxmlElement("w:t")
     node.text = text
-    if text[:1].isspace() or text[-1:].isspace():
-        node.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    _apply_xml_space(node, text)
     run.append(node)
     wrapper.append(run)
-    reference = _run_at(paragraph, insertion_index)
+    reference = _insertion_reference(paragraph, position.offset)
     if reference is None:
         paragraph._p.append(wrapper)
     else:
         reference.addprevious(wrapper)
+    wrapped = "".join(_run_plain_text(child) for child in wrapper if child.tag == qn("w:r"))
+    if wrapped != text:
+        raise RevisionMutationError(f"revision range cannot be mapped at {position.locator}")
     return _result(data, document, "insert_revision", position.locator, revision_id)
 
 
@@ -97,36 +116,35 @@ def delete_revision(
     reviewer: RevisionAuthor,
 ) -> RevisionMutationResult:
     document, paragraph = _paragraph(data, target.locator)
-    segments = paragraph_to_inline_segments(paragraph)
-    visible = _visible_text(segments)
+    _explode_runs(paragraph._p)
+    visible = _aligned_visible_text(paragraph, target.locator)
     if not 0 <= target.start_offset < target.end_offset <= len(visible):
         raise RevisionMutationError(f"invalid deletion range for {target.locator}")
     selected = visible[target.start_offset : target.end_offset]
     if target.expected_text is not None and selected != target.expected_text:
         raise RevisionMutationError(f"revision range text changed at {target.locator}")
-    segments = _split_visible_offset(
-        _split_visible_offset(segments, target.end_offset), target.start_offset
+    _split_at_visible(paragraph, target.end_offset)
+    _split_at_visible(paragraph, target.start_offset)
+    selected_runs = _runs_in_visible_range(
+        paragraph, target.start_offset, target.end_offset, target.locator
     )
-    start = _index_at_visible_offset(segments, target.start_offset)
-    end = _index_at_visible_offset(segments, target.end_offset)
-    chosen = segments[start:end]
-    if not chosen or any(segment.kind != "text" for segment in chosen):
-        raise RevisionMutationError(f"revision range crosses opaque content at {target.locator}")
-    rebuild_paragraph_from_inline(paragraph, segments)
+    wrapped_text = "".join(_run_plain_text(run) for run in selected_runs)
+    if wrapped_text != selected:
+        raise RevisionMutationError(f"revision range cannot be mapped at {target.locator}")
     revision_id = _next_revision_id(data)
     wrapper = _revision_wrapper("del", revision_id, reviewer)
-    runs = list(paragraph.runs)
-    selected_runs = runs[start:end]
-    if len(selected_runs) != len(chosen):
-        raise RevisionMutationError(f"revision range cannot be mapped at {target.locator}")
-    selected_runs[0]._r.addprevious(wrapper)
-    for run in selected_runs:
-        run_element = run._r
+    selected_runs[0].addprevious(wrapper)
+    for run_element in selected_runs:
         for text_node in run_element.iter(qn("w:t")):
             text_node.tag = qn("w:delText")
         parent = run_element.getparent()
+        if parent is None:
+            raise RevisionMutationError(f"revision range cannot be mapped at {target.locator}")
         parent.remove(run_element)
         wrapper.append(run_element)
+    confirmed = "".join(_run_plain_text(run) for run in wrapper.iterchildren(qn("w:r")))
+    if confirmed != selected:
+        raise RevisionMutationError(f"revision range cannot be mapped at {target.locator}")
     return _result(data, document, "delete_revision", target.locator, revision_id)
 
 
@@ -172,16 +190,195 @@ def _next_revision_id(data: bytes) -> int:
     return max(ids, default=-1) + 1
 
 
-def _run_at(paragraph: Any, index: int) -> Any | None:
-    runs = list(paragraph._p.iterchildren(qn("w:r")))
-    return runs[index] if index < len(runs) else None
+def _aligned_visible_text(paragraph: Any, locator: str) -> str:
+    visible = _visible_text(paragraph_to_inline_segments(paragraph))
+    from_pieces = "".join(piece.text for piece in _live_pieces(paragraph))
+    if visible != from_pieces:
+        raise RevisionMutationError(f"revision range cannot be mapped at {locator}")
+    return visible
 
 
-def _nearby_run(paragraph: Any, index: int) -> Any | None:
-    runs = list(paragraph.runs)
-    if not runs:
+def _live_pieces(paragraph: Any) -> list[_LivePiece]:
+    pieces: list[_LivePiece] = []
+
+    def from_run(run: Any) -> None:
+        markup_run = _run_is_markup(run)
+        for child in run:
+            if child.tag == qn("w:rPr"):
+                continue
+            if child.tag in _TEXT_NODE_TAGS:
+                if child.text:
+                    pieces.append(_LivePiece("text", child.text, run, False))
+                continue
+            width = (
+                ""
+                if _is_text_box_container(child.tag)
+                or any(_is_text_box_container(node.tag) for node in child.iter())
+                else _inline_width(child)
+            )
+            pieces.append(
+                _LivePiece(
+                    "opaque",
+                    width,
+                    run,
+                    markup_run or child.tag == _COMMENT_REFERENCE,
+                )
+            )
+
+    def walk(parent: Any) -> None:
+        for child in parent:
+            if child.tag == qn("w:pPr"):
+                continue
+            if child.tag == qn("w:r"):
+                from_run(child)
+                continue
+            if child.tag in _TRANSPARENT_WRAPPERS:
+                walk(child)
+                continue
+            pieces.append(
+                _LivePiece(
+                    "opaque",
+                    _descendant_visible_text(child),
+                    None,
+                    child.tag in _MARKUP_TAGS,
+                )
+            )
+
+    walk(paragraph._p)
+    return pieces
+
+
+def _run_is_markup(run: Any) -> bool:
+    children = [child for child in run if child.tag != qn("w:rPr")]
+    return bool(children) and all(
+        child.tag in _MARKUP_TAGS or child.tag == _COMMENT_REFERENCE for child in children
+    )
+
+
+def _explode_runs(parent: Any) -> None:
+    for child in list(parent):
+        if child.tag in _TRANSPARENT_WRAPPERS:
+            _explode_runs(child)
+            continue
+        if child.tag != qn("w:r"):
+            continue
+        replacements = _exploded_runs(child)
+        if replacements is None:
+            continue
+        for run in replacements:
+            child.addprevious(run)
+        parent.remove(child)
+
+
+def _exploded_runs(run: Any) -> list[Any] | None:
+    content = [child for child in run if child.tag != qn("w:rPr")]
+    if len(content) <= 1:
         return None
-    return runs[min(index, len(runs) - 1)]._r
+    rpr = run.find(qn("w:rPr"))
+    exploded: list[Any] = []
+    for child in content:
+        new_run = OxmlElement("w:r")
+        if rpr is not None:
+            new_run.append(deepcopy(rpr))
+        new_run.append(deepcopy(child))
+        exploded.append(new_run)
+    return exploded
+
+
+def _split_at_visible(paragraph: Any, offset: int) -> None:
+    cursor = 0
+    for piece in _live_pieces(paragraph):
+        width = len(piece.text)
+        if (
+            piece.kind == "text"
+            and piece.run is not None
+            and cursor < offset < cursor + width
+        ):
+            _split_text_run(piece.run, offset - cursor)
+            return
+        cursor += width
+
+
+def _split_text_run(run: Any, local_offset: int) -> None:
+    texts = [child for child in run if child.tag in _TEXT_NODE_TAGS]
+    if len(texts) != 1:
+        return
+    node = texts[0]
+    text = node.text or ""
+    if not 0 < local_offset < len(text):
+        return
+    left, right = text[:local_offset], text[local_offset:]
+    node.text = left
+    _apply_xml_space(node, left)
+    following = deepcopy(run)
+    for child in following:
+        if child.tag in _TEXT_NODE_TAGS:
+            child.text = right
+            _apply_xml_space(child, right)
+    run.addnext(following)
+
+
+def _runs_in_visible_range(paragraph: Any, start: int, end: int, locator: str) -> list[Any]:
+    runs: list[Any] = []
+    cursor = 0
+    for piece in _live_pieces(paragraph):
+        piece_start = cursor
+        piece_end = cursor + len(piece.text)
+        cursor = piece_end
+        if piece.markup:
+            continue
+        zero_width_inside = piece_start == piece_end and start <= piece_start < end
+        overlaps = piece_start < end and piece_end > start
+        if piece.kind != "text":
+            if overlaps or zero_width_inside:
+                raise RevisionMutationError(f"revision range crosses opaque content at {locator}")
+            continue
+        if (
+            piece.run is not None
+            and piece_start >= start
+            and piece_end <= end
+            and piece_start < piece_end
+        ):
+            runs.append(piece.run)
+    if not runs:
+        raise RevisionMutationError(f"revision range cannot be mapped at {locator}")
+    parents = {run.getparent() for run in runs}
+    if len(parents) != 1 or None in parents:
+        raise RevisionMutationError(f"revision range cannot be mapped at {locator}")
+    return runs
+
+
+def _insertion_reference(paragraph: Any, offset: int) -> Any | None:
+    cursor = 0
+    for piece in _live_pieces(paragraph):
+        if cursor >= offset and piece.kind == "text" and piece.run is not None:
+            return piece.run
+        cursor += len(piece.text)
+    return None
+
+
+def _rpr_near_offset(paragraph: Any, offset: int) -> Any | None:
+    reference = _insertion_reference(paragraph, offset)
+    if reference is None:
+        last = None
+        for piece in _live_pieces(paragraph):
+            if piece.kind == "text" and piece.run is not None:
+                last = piece.run
+        reference = last
+    if reference is None:
+        return None
+    return deepcopy(reference.find(qn("w:rPr")))
+
+
+def _run_plain_text(run: Any) -> str:
+    return "".join((child.text or "") for child in run if child.tag in _TEXT_NODE_TAGS)
+
+
+def _apply_xml_space(node: Any, text: str) -> None:
+    if text[:1].isspace() or text[-1:].isspace():
+        node.set(_XML_SPACE, "preserve")
+    elif _XML_SPACE in node.attrib:
+        del node.attrib[_XML_SPACE]
 
 
 def _serialize(document: Any) -> bytes:
