@@ -25,21 +25,21 @@ the MIME type and file extension as secondary signals.
 From GitHub:
 
 ```bash
-python -m pip install git+https://github.com/mikolaj92/Docxtor.git
+python -m pip install git+https://github.com/mikolaj92/Docxtor.git@v0.18.0
 ```
 
 With `uv`:
 
 ```bash
-uv add git+https://github.com/mikolaj92/Docxtor.git
+uv add git+https://github.com/mikolaj92/Docxtor.git@v0.18.0
 ```
 
-Pin `v0.16.0` or later for the open-handle comment, tracked-edit, and in-place
-publish surface. Pin `v0.8.0` or later for qualified package surfaces, OPC graph, combined transactions, remove/cascade, and global postflight. Pin `v0.7.0` or later for complete mechanical facts snapshot (`DocxFactsSnapshot`) and structural comparison (`compare_docx`). `v0.6.0` introduced neutral Word review markup, typed operation receipts, and atomic DOCX publication. `v0.5.2` introduced complete package inventory,
-neutral surface capabilities, and verified surface mutations. Earlier `v0.4.x` tags include
-stable text/revision/comment addressing but not the complete inventory contract.
-Tag `v0.4.1` still ships distribution version `0.4.0`; `v0.4.4` was the first
-correctly versioned stable-addressing pin.
+Pin the current release tag `v0.18.0` (matching `pyproject.toml`). For the
+feature history of earlier releases, see the git tags and `docs/releases/`.
+
+> Historical note only: tag `v0.4.1` still shipped distribution version
+> `0.4.0`; `v0.4.4` was the first correctly versioned stable-addressing pin.
+> Do not pin `v0.4.1`.
 
 ## Basic Usage
 
@@ -253,7 +253,7 @@ uv run pytest
 
 MIT
 
-## Sole mechanical DOCX layer (v0.3.0+)
+## Sole mechanical DOCX layer
 
 **Docxtor is the single source of truth for mechanical DOCX manipulation.**
 
