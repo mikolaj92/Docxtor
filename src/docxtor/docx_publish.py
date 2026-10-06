@@ -73,8 +73,11 @@ def publish_docx(
         )
 
     validator_list = tuple(validators)
+    target = Path(destination)
+    receipt: PublishReceipt
 
     def validate(path: Path) -> None:
+        nonlocal receipt
         read_package_entries(path)
         from .docx_review_inventory import inventory_review_markup
         from .docx_review_models import ReviewCoverage
@@ -85,23 +88,26 @@ def publish_docx(
             raise PublishError(f"review markup validation failed: {diagnostics}")
         for validator in validator_list:
             validator(path)
+        # Capture the publication facts while failure can still leave the
+        # destination untouched. Do no fallible destination I/O after replace.
+        payload = path.read_bytes()
+        read_package_entries(payload)
+        receipt = PublishReceipt(
+            destination=target,
+            sha256=sha256(payload).hexdigest(),
+            size=len(payload),
+            preserved_parts=tuple(sorted(preserved)),
+            normalized_parts=tuple(entry.name for entry in final_entries),
+            validators_run=len(validator_list),
+        )
 
-    target = Path(destination)
     try:
         write_package_atomically(target, final_entries, validate=validate)
     except (OSError, PackageError, ValueError) as exc:
         if isinstance(exc, PublishError):
             raise
         raise PublishError(f"DOCX publication failed: {exc}") from exc
-    payload = target.read_bytes()
-    return PublishReceipt(
-        destination=target,
-        sha256=sha256(payload).hexdigest(),
-        size=len(payload),
-        preserved_parts=tuple(sorted(preserved)),
-        normalized_parts=tuple(entry.name for entry in final_entries),
-        validators_run=len(validator_list),
-    )
+    return receipt
 
 
 def _same_xml_meaning(left: bytes, right: bytes) -> bool:
