@@ -229,7 +229,7 @@ class DocxHandleOperations:
         changed snapshots use stable ZIP metadata so projection and mutation see
         identical bytes even across separate calls.
         """
-        rendered = self.to_bytes()
+        rendered = self._serialize_current_bytes()
         source = self._source_bytes
         if source is None:
             return _package_bytes(read_package_entries(rendered))
@@ -248,7 +248,7 @@ class DocxHandleOperations:
             return source
         original = read_package_entries(source)
         rendered_entries = read_package_entries(rendered)
-        baseline = read_package_entries(type(self).open_bytes(source).to_bytes())
+        baseline = read_package_entries(type(self).open_bytes(source)._serialize_current_bytes())
         current_by_name = {entry.name: entry for entry in rendered_entries}
         baseline_by_name = {entry.name: entry for entry in baseline}
         if (
