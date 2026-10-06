@@ -3,12 +3,32 @@
 Extract editable text segments from documents, modify them in memory, and write
 the changed text back as document bytes.
 
-Docxtor is useful when you need one small interface for document text
+Docxtor is useful when you need one interface for document text
 round-trips across plain text files, DOCX files, and text-layer PDFs.
 
 ## Status
 
-Early library. The public API is small, but not stable yet.
+Early library. The public API is not stable yet, and it is not small:
+`docxtor.__all__` exports 213 names (including `__version__`).
+
+Every name below is part of the public surface and importable from `docxtor`:
+
+- Documents & detection (12): `DOCX_MIME`, `MD_MIME`, `PDF_MIME`, `TXT_MIME`, `DocumentBytes`, `DocumentError`, `DocumentKind`, `DetectedDocumentType`, `PlainTextDocument`, `detect_document_type`, `document_to_bytes`, `load_document`
+- PDF (2): `PdfExtractionMode`, `PdfDocument`
+- DOCX segments & locators (15): `AddressableComment`, `AddressableSpan`, `DocxDocument`, `InlineSegment`, `InlineSegmentKind`, `ParagraphLocator`, `ParagraphResolution`, `RunLocator`, `RunResolution`, `SegmentReplacement`, `SpanRole`, `TextSegment`, `UnsupportedRevisionError`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline`
+- Surface mutations (6): `SurfaceDisposition`, `SurfaceDispositionStatus`, `SurfaceMutationError`, `SurfaceMutationResult`, `SurfaceReplacement`, `apply_surface_replacements`
+- Comment & revision mutations (9): `RevisionAuthor`, `RevisionMutationError`, `RevisionMutationResult`, `RevisionPosition`, `RevisionRange`, `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange`
+- DOCX inventory (11): `DocumentSurface`, `DocxInventory`, `InventoryCoverage`, `PackagePart`, `SurfaceCapability`, `SurfaceKind`, `SurfaceVisibility`, `inventory_docx`, `PackageGraph`, `PackageRelationship`, `SURFACE_LOCATOR_VERSION`
+- DOCX facts (18): `ChangeKind`, `ContainerCoordinate`, `DocxComparison`, `FactChange`, `FactDiagnostic`, `FactsCoverage`, `NamedFact`, `PageBreakFact`, `PageLayoutFacts`, `ParagraphFact`, `RelationshipFact`, `StoryFact`, `DocxFactsSnapshot`, `DocxStructureSnapshot`, `TransformPolicy`, `UnreadablePartFact`, `compare_docx`, `docx_facts`
+- DOCX comparison (22): `BlockPair`, `CommentAnchor`, `CommentChange`, `CommentChangeStatus`, `ComparisonCoverage`, `ComparisonDiagnostic`, `DiagnosticSeverity`, `DocumentBlock`, `DocumentComment`, `DocumentSpan`, `DocumentView`, `DocxDocumentComparison`, `FormattingChange`, `FormattingSpan`, `RevisionEvent`, `RevisionEventStatus`, `RevisionReference`, `RevisionResolutionEvidence`, `TextAnchor`, `TextChange`, `TextChangeKind`, `compare_docx_documents`
+- Revisions & dispositions (23): `RevisionDecision`, `RevisionDisposition`, `RevisionDispositionCoverage`, `RevisionDispositionDiagnostic`, `RevisionDispositionInventory`, `RevisionDispositionReceipt`, `RevisionDispositionResult`, `RevisionDispositionTarget`, `RevisionSelectionError`, `inspect_revision_dispositions`, `dispose_revisions_bytes`, `AcceptRevisionsError`, `RejectRevisionsError`, `Revision`, `RevisionInventory`, `RevisionInventoryCoverage`, `RevisionKind`, `RevisionOperation`, `RevisionOperationError`, `RevisionOperationReceipt`, `accept_all_revisions_bytes`, `inventory_revisions_bytes`, `reject_all_revisions_bytes`
+- Review markup, geometry & batch transactions (20): `PhysicalCommentAnchor`, `PhysicalCommentRange`, `PhysicalCommentSpan`, `PhysicalParagraphGeometry`, `PhysicalReviewGeometry`, `physical_span_for_semantic_range`, `project_docx_review_geometry`, `add_physical_comment_bytes`, `remove_all_comments_bytes`, `inventory_review_markup`, `CommentRevisionAssociation`, `OperationReceipt`, `OperationStatus`, `ReviewBatchReceipt`, `ReviewCoverage`, `ReviewDiagnostic`, `ReviewMarkupInventory`, `ReviewCommand`, `ReviewTransactionError`, `apply_review_batch`
+- Review projection & physical render (12): `DocxReviewProjection`, `ReviewNoteProjection`, `ReviewParagraphProjection`, `project_docx_for_review`, `PhysicalReviewComment`, `PhysicalReviewNote`, `PhysicalReviewPlan`, `PhysicalReviewRenderError`, `PhysicalReviewer`, `PhysicalReviewEdit`, `render_physical_clean`, `render_physical_review`
+- Package, OPC & package transactions (30): `PackageChangeReport`, `PackagePartChange`, `PackagePartChangeKind`, `compare_docx_packages`, `DOCX_CONTENT_TYPES_PROFILE_ID`, `ContentTypeDiagnostic`, `ContentTypeSeverity`, `ContentTypeValidation`, `validate_docx_content_types`, `DOCX_RELATIONSHIP_PROFILE_ID`, `RelationshipDiagnostic`, `RelationshipSeverity`, `RelationshipValidation`, `validate_docx_relationships`, `DEFAULT_PACKAGE_LIMITS`, `PackageEntry`, `PackageError`, `PackageLimits`, `normalize_docx_timestamps`, `parse_package_xml`, `read_package_entries`, `restore_semantically_unchanged_xml_parts`, `write_package_atomically`, `PackageDisposition`, `PackageDispositionStatus`, `PackageMutation`, `PackageMutationError`, `PackageMutationKind`, `PackageTransactionReceipt`, `apply_package_transaction`
+- Metadata, properties & link fields (8): `read_core_keywords`, `remove_core_keyword_values`, `set_core_keywords`, `flatten_link_fields`, `instruction_is_strippable_hyperlink_field`, `MetadataInspection`, `inspect_docx_metadata`, `sanitize_docx_metadata`
+- Creation, admission & publication (17): `PublishError`, `PublishReceipt`, `BodyAppendix`, `DocumentMark`, `PublicationMarkError`, `append_body_appendix`, `has_body_appendix`, `has_document_mark`, `remove_body_appendix`, `stamp_document_mark`, `write_publication_bytes`, `DocxCreationError`, `create_docx_from_paragraphs`, `write_docx_from_paragraphs`, `DocumentPackageKind`, `DocxAdmissionInspection`, `inspect_docx_admission`
+- Combined transactions (2): `CombinedTransactionReceipt`, `apply_docx_transaction`
+- Cross-references (5): `DOCX_CROSS_REFERENCE_PROFILE_ID`, `CrossReferenceDiagnostic`, `CrossReferenceReport`, `CrossReferenceSeverity`, `diagnose_docx_cross_references`
 
 ## Supported Formats
 | Format | Read | Write | Notes |
