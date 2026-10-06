@@ -55,3 +55,20 @@ def test_status_prose_names_only_exports() -> None:
         if name not in docxtor.__all__ and name not in {"docxtor", "__all__"}
     )
     assert not non_exports, f"README Status prose names non-exports: {non_exports}"
+
+
+def test_status_group_tallies_match_listed_names() -> None:
+    """Each Status group bullet's (N) tally must equal the names it lists."""
+    status = _readme().split("## Status", 1)[1].split("\n## ", 1)[0]
+    mismatches: list[str] = []
+    for line in status.splitlines():
+        if not line.startswith("- "):
+            continue
+        tally = re.search(r"\((\d+)\)", line)
+        assert tally, f"Status group bullet without a count: {line[:60]}"
+        listed = re.findall(r"`([^`]+)`", line.split(":", 1)[1])
+        if int(tally.group(1)) != len(listed):
+            mismatches.append(
+                f"{line[:60]}...: claims {tally.group(1)}, lists {len(listed)}"
+            )
+    assert not mismatches, "Status group tallies wrong: " + "; ".join(mismatches)
