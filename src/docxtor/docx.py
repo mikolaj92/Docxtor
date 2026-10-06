@@ -408,6 +408,11 @@ class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations, DocxHa
         return docx_facts(payload)
 
     def to_bytes(self) -> bytes:
+        """Return the stable current package, preserving all source entries."""
+        return self._current_review_bytes()
+
+    def _serialize_current_bytes(self) -> bytes:
+        """Serialize the in-memory parts reachable through python-docx."""
         _ensure_thread_parts(self._doc.part.package, self._thread_parts)
         buf = BytesIO()
         self._doc.save(buf)
