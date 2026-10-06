@@ -43,3 +43,15 @@ def test_status_lists_only_exported_names() -> None:
     """README Status must not advertise names docxtor no longer exports."""
     stale = sorted(_status_listed_names() - set(docxtor.__all__))
     assert not stale, f"README Status lists names not in docxtor.__all__: {stale}"
+
+
+def test_status_prose_names_only_exports() -> None:
+    """Backticked identifiers in Status prose (count sentence) must be exports."""
+    status = _readme().split("## Status", 1)[1].split("\n## ", 1)[0]
+    prose = "\n".join(line for line in status.splitlines() if not line.startswith("- "))
+    non_exports = sorted(
+        name
+        for name in re.findall(r"`(\w+)`", prose)
+        if name not in docxtor.__all__ and name not in {"docxtor", "__all__"}
+    )
+    assert not non_exports, f"README Status prose names non-exports: {non_exports}"
