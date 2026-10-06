@@ -198,7 +198,6 @@ def _comment_parent_ids(comments_part: Any, package: Any) -> dict[str, str]:
             para_id = paragraph.get(f"{{{W14_NS}}}paraId")
             if para_id:
                 para_to_comment[para_id] = comment_id
-                break
     if not para_to_comment:
         return {}
     try:
