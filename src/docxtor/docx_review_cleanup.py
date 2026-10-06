@@ -23,7 +23,7 @@ from .docx_package import (
     read_package_entries,
 )
 from .docx_review_models import OperationReceipt, OperationStatus
-from .docx_revisions import _REVISION_NAMES
+from .docx_revision_inventory import _REVISION_NAMES
 
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _STRICT_W = "http://purl.oclc.org/ooxml/wordprocessingml/main"
