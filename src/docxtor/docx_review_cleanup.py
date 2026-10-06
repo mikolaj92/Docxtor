@@ -360,6 +360,10 @@ def _read_markers(state: _State) -> None:
             if parent is None or parent.tag not in allowed_parents:
                 raise CommentMutationError(f"unsupported native comment marker parent in {name}")
             ancestors = list(node.iterancestors())
+            if any(item.tag in {f"{{{_W}}}pPr", f"{{{_W}}}rPr"} for item in ancestors):
+                raise CommentMutationError(
+                    f"unsupported native comment marker inside properties in {name}"
+                )
             story = next((item for item in ancestors if item.tag in _STORIES), root)
             identity = (name, root.getroottree().getpath(story))
             anchors.setdefault(comment_id, []).append((node.tag, identity, index))
