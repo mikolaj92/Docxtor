@@ -21,6 +21,17 @@ def test_docx_godfile_is_split_into_small_modules() -> None:
         "docx_comments.py",
         "docx_stories.py",
         "docx.py",
+        "docx_facts.py",
+        "docx_facts_models.py",
+        "docx_facts_package.py",
+        "docx_facts_scan.py",
+        "docx_facts_compare.py",
+        "docx_revisions.py",
+        "docx_revision_models.py",
+        "docx_revision_inventory.py",
+        "docx_revision_package.py",
+        "docx_revision_paragraphs.py",
+        "docx_revision_tree.py",
     }
     present = {path.name for path in ROOT.glob("docx*.py")}
     assert expected <= present
