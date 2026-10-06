@@ -10,6 +10,7 @@ from .docx_facts_compare import compare_docx
 from .docx_facts_models import (
     ChangeKind,
     ContainerCoordinate,
+    ContentTypeFact,
     DocxComparison,
     DocxFactsSnapshot,
     DocxStructureSnapshot,
@@ -20,6 +21,7 @@ from .docx_facts_models import (
     PageBreakFact,
     PageLayoutFacts,
     ParagraphFact,
+    PartFact,
     RelationshipFact,
     Source,
     StoryFact,
@@ -31,6 +33,7 @@ from .docx_facts_scan import docx_facts, snapshot_docx
 __all__ = [
     "ChangeKind",
     "ContainerCoordinate",
+    "ContentTypeFact",
     "DocxComparison",
     "DocxFactsSnapshot",
     "DocxStructureSnapshot",
@@ -39,6 +42,7 @@ __all__ = [
     "FactsCoverage",
     "NamedFact",
     "PageBreakFact",
+    "PartFact",
     "PageLayoutFacts",
     "ParagraphFact",
     "RelationshipFact",
