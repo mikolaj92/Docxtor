@@ -12,13 +12,13 @@ from docx.oxml.ns import qn
 from docxtor import DocxDocument
 from docxtor.docx_facts import (
     ChangeKind,
-    ContentTypeFact,
     FactsCoverage,
-    PartFact,
     TransformPolicy,
     compare_docx,
     docx_facts,
 )
+from docxtor.docx_facts_models import ContentTypeFact as ModelContentTypeFact
+from docxtor.docx_facts_models import PartFact as ModelPartFact
 from docxtor.docx_package import (
     PackageEntry,
     PackageError,
@@ -56,8 +56,8 @@ def test_public_facade_exposes_content_type_and_part_facts() -> None:
 
     assert "ContentTypeFact" in facade.__all__
     assert "PartFact" in facade.__all__
-    assert facade.ContentTypeFact is ContentTypeFact
-    assert facade.PartFact is PartFact
+    assert facade.ContentTypeFact is ModelContentTypeFact
+    assert facade.PartFact is ModelPartFact
 
 
 def test_snapshot_reports_parts_relationships_stories_and_orphan(tmp_path) -> None:
