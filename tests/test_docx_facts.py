@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib import import_module
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -11,7 +12,9 @@ from docx.oxml.ns import qn
 from docxtor import DocxDocument
 from docxtor.docx_facts import (
     ChangeKind,
+    ContentTypeFact,
     FactsCoverage,
+    PartFact,
     TransformPolicy,
     compare_docx,
     docx_facts,
@@ -46,6 +49,15 @@ def _rewrite(tmp_path, data: bytes, changes: dict[str, bytes | None]) -> bytes:
             entries.append(PackageEntry(name, replacement))
     write_package_atomically(path, entries)
     return path.read_bytes()
+
+
+def test_public_facade_exposes_content_type_and_part_facts() -> None:
+    facade = import_module("docxtor.docx_facts")
+
+    assert "ContentTypeFact" in facade.__all__
+    assert "PartFact" in facade.__all__
+    assert facade.ContentTypeFact is ContentTypeFact
+    assert facade.PartFact is PartFact
 
 
 def test_snapshot_reports_parts_relationships_stories_and_orphan(tmp_path) -> None:
