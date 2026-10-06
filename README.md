@@ -403,6 +403,73 @@ empty document from incomplete coverage. Unsupported structural revisions fail
 closed. `apply_review_batch()` returns no intermediate bytes if any command
 fails.
 
+#### Selective disposition of existing revisions
+
+`inspect_revision_dispositions(bytes)` inventories every XML OPC member,
+including comment stories, alternative XML branches and orphan parts. Each
+immutable target identifies the package part, namespace, revision kind, Word ID,
+physical XPath and subtree hash. Its neutral payload text, paragraph XPath and
+paragraph text provide context without deciding review meaning. The inventory
+also identifies the exact input bytes and its complete set of records with
+SHA-256 hashes.
+
+Pass that inventory and explicit `RevisionDecision` records to
+`dispose_revisions_bytes`. The caller chooses every decision; Docxtor does not
+derive authority from authorship, text or residual Word markup.
+
+```python
+from docxtor import (
+    RevisionDecision,
+    RevisionDisposition,
+    dispose_revisions_bytes,
+    inspect_revision_dispositions,
+    read_package_entries,
+    write_package_atomically,
+)
+
+inventory = inspect_revision_dispositions(input_bytes)
+# target_ids are an explicit selection made by the caller from this inventory.
+result = dispose_revisions_bytes(
+    input_bytes,
+    inventory,
+    [RevisionDecision(target_id, RevisionDisposition.ACCEPT) for target_id in target_ids],
+)
+assert all(receipt.resolved for receipt in result.receipts)
+write_package_atomically("resolved.docx", read_package_entries(result.data))
+```
+
+Supported selections are transitional `w:ins` and `w:del` wrappers directly
+inside a paragraph or hyperlink, containing ordinary runs with text, tabs and
+line breaks. Accepting an insertion or rejecting a deletion retains its runs;
+rejecting an insertion or accepting a deletion removes its runs. Restoring a
+deletion converts only that wrapper's `w:delText` to `w:t`. Formatting and all
+surrounding markup are preserved.
+
+Two directly adjacent opposite-kind wrappers form a conservative atomic inline
+replacement group, recorded by `group_id` and `required_target_ids`. This is a
+physical adjacency rule, without authorship or provenance inference. Both
+targets must be selected with the same disposition; larger mixed chains and
+pairs containing an unsupported member are preserve-only. Independent supported
+targets can receive mixed accept/reject decisions in one call, even in one
+paragraph.
+
+Move/range, paragraph-mark, property, nested, alternative-branch and opaque-content
+revisions are inventoried as preserve-only. Selecting one fails closed. An
+unknown/duplicate target, absent/duplicate Word identity, stale or modified
+inventory, partial/conflicting replacement group, or incomplete XML coverage
+fails before output is returned. Valid range start/end markers may share a Word
+ID, while repeated endpoints or repeated wrapper IDs are ambiguous.
+
+The result contains typed complete `before`/`after` inventories, per-selected-target
+receipts, output bytes and their SHA-256, and the changed part names. Postflight
+reopens the output and verifies the complete planned XML transformation, every
+unselected revision subtree in source order, original OPC members and metadata,
+and byte-exact untouched part payloads. Unsupported unselected revisions remain
+intact. No intermediate or partially resolved output is returned. The existing
+`write_package_atomically` publication API validates a staged package before one
+atomic destination replacement; its optional `validate` callback can enforce
+the caller's publication policy before replacement.
+
 `publish()` serializes in memory, preserves semantically unchanged source XML,
 normalizes ZIP timestamps, validates the complete package, runs optional
 validators, and performs one atomic replace. The returned `PublishReceipt`

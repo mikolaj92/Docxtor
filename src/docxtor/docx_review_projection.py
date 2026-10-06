@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from docx.oxml.ns import qn
 
 from .docx import DocxDocument
 from .docx_facts import ParagraphFact, docx_facts
-from .docx_inline import _advances_offset, paragraph_to_inline_segments
 from .docx_models import AddressableComment, AddressableSpan
 from .docx_review_inventory import inventory_review_markup
 from .docx_review_models import ReviewCoverage, ReviewDiagnostic
+
+if TYPE_CHECKING:
+    from .docx_review_geometry import PhysicalReviewGeometry
 
 
 @dataclass(frozen=True)
@@ -42,30 +45,31 @@ class DocxReviewProjection:
     coverage: ReviewCoverage
     diagnostics: tuple[ReviewDiagnostic, ...]
     paragraph_mark_revisions: tuple[AddressableSpan, ...] = ()
+    physical_geometry: PhysicalReviewGeometry | None = None
+    tracked_revisions_detected: bool = False
 
 
 def project_docx_for_review(source: str | Path | bytes) -> DocxReviewProjection:
+    from .docx_review_geometry import project_docx_review_geometry
+
     data = source if isinstance(source, bytes) else Path(source).read_bytes()
+    geometry = project_docx_review_geometry(data)
     document = DocxDocument.open_bytes(data)
     inventory = inventory_review_markup(data)
     facts = docx_facts(data)
-    by_locator = {fact.container_id: fact for fact in facts.paragraphs}
     paragraphs = []
-    for segment in document.segments:
-        locator = segment.container_id or ""
+    for paragraph in geometry.paragraphs:
+        locator = paragraph.locator
         if not locator or locator.startswith(("comment:", "footnote:", "endnote:")):
             continue
-        paragraph = document.resolve_paragraph(locator)
-        fact = by_locator.get(locator)
-        style_id = fact.style_id if fact is not None else None
         paragraphs.append(
             ReviewParagraphProjection(
                 locator,
-                segment.text,
-                segment.paragraph_index,
-                locator.split(":", 1)[0],
-                bool(style_id and (style_id.startswith("Heading") or style_id == "Title")),
-                _opaque_ranges(paragraph),
+                paragraph.text,
+                paragraph.paragraph_index,
+                paragraph.story_kind,
+                paragraph.is_heading,
+                paragraph.opaque_ranges,
             )
         )
     notes = tuple(
@@ -80,11 +84,13 @@ def project_docx_for_review(source: str | Path | bytes) -> DocxReviewProjection:
         for fact in facts.paragraphs
         if fact.coordinate.table_index is not None
     }
-    # The text segment stream omits empty paragraphs; structural revisions
-    # still need receipts at those physical addresses.
     marks = _paragraph_mark_revisions(document, facts.paragraphs)
     coverage = inventory.coverage
-    diagnostics = inventory.diagnostics
+    if geometry.coverage is ReviewCoverage.INCOMPLETE:
+        coverage = ReviewCoverage.INCOMPLETE
+    diagnostics = inventory.diagnostics + tuple(
+        diagnostic for diagnostic in geometry.diagnostics if diagnostic not in inventory.diagnostics
+    )
     effective_parts: dict[str, list[str]] = {}
     for span in document.spans:
         if span.role != "deletion":
@@ -123,6 +129,12 @@ def project_docx_for_review(source: str | Path | bytes) -> DocxReviewProjection:
         coverage,
         diagnostics,
         marks,
+        geometry,
+        bool(inventory.revisions)
+        or any(
+            diagnostic.code in {"unsupported_revision", "unsupported_namespace"}
+            for diagnostic in inventory.diagnostics
+        ),
     )
 
 
@@ -162,23 +174,3 @@ def _paragraph_mark_revisions(
                 )
             )
     return tuple(marks)
-
-
-def _opaque_ranges(paragraph: object) -> tuple[tuple[int, int], ...]:
-    if paragraph is None:
-        return ()
-    segments = paragraph_to_inline_segments(paragraph)
-    raw = "".join(segment.text for segment in segments if _advances_offset(segment))
-    lead = len(raw) - len(raw.lstrip())
-    limit = len(raw.strip())
-    offset = 0
-    ranges = []
-    for segment in segments:
-        length = len(segment.text) if _advances_offset(segment) else 0
-        if segment.kind == "opaque" and length:
-            start = max(offset - lead, 0)
-            end = min(offset + length - lead, limit)
-            if start < end:
-                ranges.append((start, end))
-        offset += length
-    return tuple(ranges)

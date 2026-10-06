@@ -142,6 +142,17 @@ from .docx_properties import (
     set_core_keywords,
 )
 from .docx_publish import PublishError, PublishReceipt
+from .docx_review_cleanup import remove_all_comments_bytes
+from .docx_review_geometry import (
+    PhysicalCommentAnchor,
+    PhysicalCommentRange,
+    PhysicalCommentSpan,
+    PhysicalParagraphGeometry,
+    PhysicalReviewGeometry,
+    physical_span_for_semantic_range,
+    project_docx_review_geometry,
+)
+from .docx_review_geometry_comments import add_physical_comment_bytes
 from .docx_review_inventory import inventory_review_markup
 from .docx_review_models import (
     CommentRevisionAssociation,
@@ -164,6 +175,19 @@ from .docx_revision_mutations import (
     RevisionPosition,
     RevisionRange,
 )
+from .docx_revision_selection import dispose_revisions_bytes
+from .docx_revision_selection_inventory import inspect_revision_dispositions
+from .docx_revision_selection_models import (
+    RevisionDecision,
+    RevisionDisposition,
+    RevisionDispositionCoverage,
+    RevisionDispositionDiagnostic,
+    RevisionDispositionInventory,
+    RevisionDispositionReceipt,
+    RevisionDispositionResult,
+    RevisionDispositionTarget,
+    RevisionSelectionError,
+)
 from .docx_revisions import (
     AcceptRevisionsError,
     RejectRevisionsError,
@@ -184,6 +208,26 @@ from .text import PlainTextDocument
 
 __all__ = [
     "__version__",
+    "PhysicalCommentAnchor",
+    "PhysicalCommentRange",
+    "PhysicalCommentSpan",
+    "PhysicalParagraphGeometry",
+    "PhysicalReviewGeometry",
+    "physical_span_for_semantic_range",
+    "project_docx_review_geometry",
+    "add_physical_comment_bytes",
+    "remove_all_comments_bytes",
+    "RevisionDecision",
+    "RevisionDisposition",
+    "RevisionDispositionCoverage",
+    "RevisionDispositionDiagnostic",
+    "RevisionDispositionInventory",
+    "RevisionDispositionReceipt",
+    "RevisionDispositionResult",
+    "RevisionDispositionTarget",
+    "RevisionSelectionError",
+    "inspect_revision_dispositions",
+    "dispose_revisions_bytes",
     "BlockPair",
     "CommentAnchor",
     "CommentChange",
