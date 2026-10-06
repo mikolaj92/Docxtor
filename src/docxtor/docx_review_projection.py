@@ -174,4 +174,3 @@ def _paragraph_mark_revisions(
                 )
             )
     return tuple(marks)
-
