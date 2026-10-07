@@ -72,3 +72,14 @@ def test_status_group_tallies_match_listed_names() -> None:
                 f"{line[:60]}...: claims {tally.group(1)}, lists {len(listed)}"
             )
     assert not mismatches, "Status group tallies wrong: " + "; ".join(mismatches)
+
+
+def test_status_bullets_cover_exactly_the_exports() -> None:
+    """Status group bullets must list every export except __version__ (prose only)."""
+    expected = set(docxtor.__all__) - {"__version__"}
+    listed = _status_listed_names()
+    missing = sorted(expected - listed)
+    extra = sorted(listed - expected)
+    assert not missing and not extra, (
+        f"Status bullets drift from docxtor.__all__: missing={missing} extra={extra}"
+    )
