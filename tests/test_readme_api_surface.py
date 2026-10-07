@@ -122,3 +122,38 @@ def test_readme_import_examples_reference_exports() -> None:
         names.update(part.strip().rstrip(",") for part in match.split("\n") if part.strip())
     stale = sorted(names - set(docxtor.__all__))
     assert not stale, f"README import examples use non-exported names: {stale}"
+
+
+_DOCXDOCUMENT_MEMBERS_USED_IN_EXAMPLES = (
+    "open",
+    "apply_replacements",
+    "apply_surface_replacements",
+    "add_comment",
+    "update_comment",
+    "replace_revision",
+    "remove_comments",
+    "publish",
+    "save_docx",
+    "to_bytes",
+    "inventory",
+    "resolve_paragraph_locator",
+    "resolve_run_locator",
+    "segments",
+    "spans",
+    "comments",
+    "paragraph_resolutions",
+    "alternate_content_coverage",
+)
+
+
+def test_readme_example_apis_exist() -> None:
+    """DocxDocument members used in README examples must exist (no copy-paste AttributeError)."""
+    missing = sorted(
+        name
+        for name in _DOCXDOCUMENT_MEMBERS_USED_IN_EXAMPLES
+        if not hasattr(docxtor.DocxDocument, name)
+    )
+    assert not missing, (
+        f"README examples use DocxDocument members that do not exist: {missing}; "
+        "update the examples or the member list"
+    )

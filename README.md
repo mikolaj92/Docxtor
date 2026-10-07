@@ -173,29 +173,6 @@ authorship attributes, and thread sidecar parts (`commentsExtended.xml`,
 not become user-authored segments. Unknown comment targets fail before any edit.
 ReviewKit remains responsible for review semantics.
 
-### Text search across runs
-
-`DocxDocument.find_text()` finds overlapping exact matches across Word run
-boundaries while returning source-character offsets in a stable paragraph
-segment. Matches stay within one paragraph, and `container_id` can narrow the
-search. Opt into `match="normalized"` to fold case, common typographic
-characters, and whitespace for search only; returned text and offsets still
-refer to the original document. `replace_match()` applies a result only while
-its paragraph still matches the captured snapshot, then delegates the edit to
-Docxtor's offset-based replacement machinery.
-
-```python
-from docxtor import DocxDocument
-
-document = DocxDocument.open("input.docx")
-match = document.find_text("thirty days", match="normalized")[0]
-document.replace_match(match, "business days")
-```
-
-Search does not span paragraph boundaries or choose among matches on the
-caller's behalf. Use the returned match list and explicit paragraph coordinates
-to make that choice.
-
 ### Typed paragraph and run locators
 
 Consumers that need paragraph/run identity and values can stay independent of
