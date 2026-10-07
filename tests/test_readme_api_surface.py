@@ -211,3 +211,14 @@ def test_readme_example_dto_fields_exist() -> None:
         f"README examples read DTO fields that do not exist: {missing}; "
         "update the examples or the field list"
     )
+
+
+def test_readme_module_calls_are_exports() -> None:
+    """README must not call docxtor.<name> for a name that is not exported."""
+    phantom = sorted(
+        set(re.findall(r"docxtor\.(\w+)", _readme())) - set(docxtor.__all__) - {"__all__"}
+    )
+    assert not phantom, (
+        f"README calls docxtor attributes that are not exported: {phantom}; "
+        "use a real export or import-from syntax"
+    )
