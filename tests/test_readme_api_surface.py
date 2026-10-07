@@ -160,6 +160,9 @@ def test_readme_example_apis_exist() -> None:
 
 
 _DTO_FIELDS_USED_IN_EXAMPLES = (
+    ("DocumentBytes", "filename"),
+    ("DocumentBytes", "content_type"),
+    ("DocumentBytes", "data"),
     ("DocxInventory", "coverage"),
     ("DocxInventory", "unknown_parts"),
     ("DocxInventory", "unreadable_parts"),
