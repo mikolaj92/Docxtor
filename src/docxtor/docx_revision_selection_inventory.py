@@ -272,14 +272,13 @@ def _content_types(
             )
             continue
         table[key] = value
-    return {
-        item.name: value
-        for item in entries
-        if (
-            value := overrides.get(item.name)
-            or defaults.get(PurePosixPath(item.name).suffix.removeprefix(".").lower())
-        )
-    }
+    content_types: dict[str, str] = {}
+    for item in entries:
+        _, separator, extension = PurePosixPath(item.name).name.rpartition(".")
+        value = overrides.get(item.name) or defaults.get(extension.lower() if separator else "")
+        if value:
+            content_types[item.name] = value
+    return content_types
 
 
 def _xml_member(entry: PackageEntry, content_type: str | None) -> bool:
