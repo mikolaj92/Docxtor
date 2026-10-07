@@ -14,7 +14,7 @@ Early library. The public API is small, but not stable yet.
 | Format | Read | Write | Notes |
 | --- | --- | --- | --- |
 | TXT/Markdown/text files | yes | same text format when known | Decodes UTF-8, UTF-16, CP1250, or Latin-1 input. |
-| DOCX | yes | DOCX | High-fidelity editing powered by `python-docx` (the standard library for Microsoft's .docx format). Stable `container_id` + `paragraph_index`, whole-segment and offset-based partial replacements with run splitting. |
+| DOCX | yes | DOCX | High-fidelity editing powered by `python-docx`, a third-party dependency (not Python's standard library and not a Microsoft product) for the .docx / WordprocessingML format. Stable `container_id` + `paragraph_index`, whole-segment and offset-based partial replacements with run splitting. |
 | PDF | text layer only | PDF | Layout-preserving redaction/overlays when possible; per-page rebuild next; full text reflow only if content no longer fits. OCR is not bundled. |
 
 `load_document` identifies the document kind from bytes first, then consults
@@ -268,7 +268,7 @@ Reviewkit (and Dike via it) delegates base paragraph/run/offset work to Docxtor 
 
 Temida consumers (posejdon_docs, dike_docs, anonimizator3000, ...) are thin adapters or high-level users. They contain **no** custom run splitting, offset math, or paragraph-mutation logic.
 
-Docxtor 0.3.0+ uses `python-docx` (the standard, mature library for Microsoft's .docx / WordprocessingML format) as its internal DOCX engine.
+Docxtor 0.3.0+ uses `python-docx`, a third-party library, as its internal DOCX engine.
 
 Key features:
 - Stable `container_id` (e.g. `"body:p:0"`, `"header:0"`, `"table:0:r:0:c:0:p:0"`, `"txbx:0:p:0"`) and `paragraph_index`.
