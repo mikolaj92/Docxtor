@@ -99,3 +99,11 @@ def test_status_bullets_cover_exactly_the_exports() -> None:
     assert not missing and not extra, (
         f"Status bullets drift from docxtor.__all__: missing={missing} extra={extra}"
     )
+
+
+def test_all_exported_names_are_importable() -> None:
+    """The Status claim 'importable from docxtor' must hold for every export."""
+    unimportable = sorted(
+        name for name in docxtor.__all__ if not hasattr(docxtor, name)
+    )
+    assert not unimportable, f"__all__ names not importable from docxtor: {unimportable}"
