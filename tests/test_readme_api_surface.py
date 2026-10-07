@@ -222,3 +222,32 @@ def test_readme_module_calls_are_exports() -> None:
         f"README calls docxtor attributes that are not exported: {phantom}; "
         "use a real export or import-from syntax"
     )
+
+
+def _block_imported_names(block: str) -> set[str]:
+    names: set[str] = set()
+    multi = re.search(r"from docxtor import \(([^)]*)\)", block, re.S)
+    if multi:
+        names |= {part.strip() for part in multi.group(1).split(",")}
+    for single in re.findall(r"from docxtor import ([\w, ]+)", block):
+        names |= {part.strip() for part in single.split(",")}
+    return names
+
+
+def test_readme_code_blocks_import_what_they_use() -> None:
+    """Each README python block must import the exported names it uses (copy-paste works)."""
+    unimported: list[str] = []
+    for index, block in enumerate(re.findall(r"```python\n(.*?)```", _readme(), re.S)):
+        imported = _block_imported_names(block)
+        if "import docxtor" in block:
+            continue
+        for name in docxtor.__all__:
+            if name == "__version__":
+                continue
+            used_bare = re.search(rf"(?<![\w.]){re.escape(name)}\b", block)
+            if used_bare and name not in imported:
+                unimported.append(f"block {index}: {name}")
+    assert not unimported, (
+        f"README code blocks use exported names without importing them: {unimported}; "
+        "add the missing names to the block's docxtor import"
+    )
