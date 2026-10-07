@@ -224,6 +224,26 @@ def test_readme_module_calls_are_exports() -> None:
     )
 
 
+def test_document_to_bytes_output_matches_readme_example(tmp_path) -> None:
+    """The Basic-Usage output comments (content_type, filename) must match real behavior."""
+    readme = _readme()
+    claimed_type = re.search(r"output\.content_type\s*#\s*(\S+)", readme)
+    claimed_name = re.search(r"output\.filename\s*#\s*(\S+)", readme)
+    assert claimed_type and claimed_name, "README Basic-Usage output comments are missing"
+    source = tmp_path / "input.docx"
+    source.write_bytes(docxtor.create_docx_from_paragraphs(["Hello world."]))
+    output = docxtor.document_to_bytes(docxtor.DocxDocument.open(str(source)))
+    suffix = ".".join(claimed_name.group(1).split(".")[1:])
+    assert output.content_type == claimed_type.group(1), (
+        f"README claims content_type {claimed_type.group(1)!r} "
+        f"but package produces {output.content_type!r}"
+    )
+    assert output.filename == f"{source.stem}.{suffix}", (
+        f"README claims filename pattern {claimed_name.group(1)!r} "
+        f"but package produces {output.filename!r}"
+    )
+
+
 def _block_imported_names(block: str) -> set[str]:
     names: set[str] = set()
     multi = re.search(r"from docxtor import \(([^)]*)\)", block, re.S)
