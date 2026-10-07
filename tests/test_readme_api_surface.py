@@ -85,7 +85,9 @@ def test_status_group_tallies_match_listed_names() -> None:
             continue
         tally = re.search(r"\((\d+)\)", line)
         assert tally, f"Status group bullet without a count: {line[:60]}"
-        listed = re.findall(r"`([^`]+)`", line.split(":", 1)[1])
+        parts = line.split(":", 1)
+        assert len(parts) == 2, f"Status group bullet without a name list: {line[:60]}"
+        listed = re.findall(r"`([^`]+)`", parts[1])
         if int(tally.group(1)) != len(listed):
             mismatches.append(
                 f"{line[:60]}...: claims {tally.group(1)}, lists {len(listed)}"
@@ -116,10 +118,12 @@ def test_readme_import_examples_reference_exports() -> None:
     """Every name README tells consumers to import from docxtor must be exported."""
     readme = _readme()
     names: set[str] = set()
-    for match in re.findall(r"from docxtor import ([^(\n][^\n]*)", readme):
+    for match in re.findall(r"from docxtor import ([^(\n][^#\n]*)", readme):
         names.update(part.strip() for part in match.split(",") if part.strip())
     for match in re.findall(r"from docxtor import \(([^)]*)\)", readme):
-        names.update(part.strip().rstrip(",") for part in match.split("\n") if part.strip())
+        names.update(
+            part.split("#")[0].strip().rstrip(",") for part in match.split("\n") if part.strip()
+        )
     stale = sorted(names - set(docxtor.__all__))
     assert not stale, f"README import examples use non-exported names: {stale}"
 

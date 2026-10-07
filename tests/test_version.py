@@ -52,7 +52,7 @@ def test_readme_license_matches_pyproject() -> None:
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     license_payload = data["project"]["license"]
     license_text = (
-        license_payload["text"] if isinstance(license_payload, dict) else license_payload
+        license_payload.get("text") if isinstance(license_payload, dict) else license_payload
     )
     if not isinstance(license_text, str):
         raise TypeError(f"unsupported pyproject license payload: {license_payload!r}")
