@@ -15,9 +15,12 @@ def _readme() -> str:
 
 
 def test_status_states_true_export_count() -> None:
-    match = re.search(r"`docxtor\.__all__` exports (\d+) names", _readme())
-    assert match, "README Status must state the docxtor.__all__ export count"
-    assert int(match.group(1)) == len(docxtor.__all__)
+    matches = re.findall(r"`docxtor\.__all__` exports (\d+) names", _readme())
+    assert matches, "README Status must state the docxtor.__all__ export count"
+    wrong = [count for count in matches if int(count) != len(docxtor.__all__)]
+    assert not wrong, (
+        f"README states wrong export count(s) {wrong}; actual {len(docxtor.__all__)}"
+    )
 
 
 def test_status_does_not_claim_a_small_api() -> None:
