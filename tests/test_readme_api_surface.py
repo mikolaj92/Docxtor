@@ -244,6 +244,30 @@ def test_document_to_bytes_output_matches_readme_example(tmp_path) -> None:
     )
 
 
+def test_basic_usage_example_roundtrip(tmp_path) -> None:
+    """The Basic-Usage flow must execute: strict replacements, write, reopen, text replaced."""
+    source = tmp_path / "input.docx"
+    source.write_bytes(docxtor.create_docx_from_paragraphs(["The old value."]))
+    document = docxtor.DocxDocument.open(str(source))
+    document.apply_replacements(
+        [
+            docxtor.SegmentReplacement(
+                container_id=segment.container_id,
+                text=segment.text.replace("old", "new"),
+            )
+            for segment in document.segments
+        ],
+        strict=True,
+    )
+    output = docxtor.document_to_bytes(document)
+    written = tmp_path / output.filename
+    written.write_bytes(output.data)
+    roundtrip = docxtor.DocxDocument.open(str(written))
+    assert [segment.text for segment in roundtrip.segments] == ["The new value."], (
+        "README Basic-Usage flow no longer matches package behavior"
+    )
+
+
 def _block_imported_names(block: str) -> set[str]:
     names: set[str] = set()
     multi = re.search(r"from docxtor import \(([^)]*)\)", block, re.S)
