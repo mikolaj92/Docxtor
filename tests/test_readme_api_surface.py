@@ -15,7 +15,7 @@ def _readme() -> str:
 
 
 def test_status_states_true_export_count() -> None:
-    match = re.search(r"`docxtor.__all__` exports (\d+) names", _readme())
+    match = re.search(r"`docxtor\.__all__` exports (\d+) names", _readme())
     assert match, "README Status must state the docxtor.__all__ export count"
     assert int(match.group(1)) == len(docxtor.__all__)
 
