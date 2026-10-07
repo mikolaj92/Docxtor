@@ -43,6 +43,21 @@ def test_readme_install_pin_matches_pyproject_version() -> None:
     )
 
 
+def test_readme_license_matches_pyproject() -> None:
+    """The README License section must state the pyproject license text."""
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    license_payload = data["project"]["license"]
+    license_text = (
+        license_payload["text"] if isinstance(license_payload, dict) else license_payload
+    )
+    if not isinstance(license_text, str):
+        raise TypeError(f"unsupported pyproject license payload: {license_payload!r}")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert f"## License\n\n{license_text}" in readme, (
+        f"README License section does not state pyproject license {license_text!r}"
+    )
+
+
 def test_pypdf_is_not_a_runtime_dependency() -> None:
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     deps = data["project"]["dependencies"]
