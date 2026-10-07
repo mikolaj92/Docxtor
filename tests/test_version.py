@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -35,11 +36,14 @@ def test_readme_documents_v041_pin_mismatch() -> None:
 
 
 def test_readme_install_pin_matches_pyproject_version() -> None:
-    """The README install pins must track pyproject (the v0.4.1 failure mode)."""
+    """Every README install pin must track pyproject (the v0.4.1 failure mode)."""
     version = _pyproject_version()
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert f"@v{version}" in readme, (
-        f"README install pin does not match pyproject version {version}"
+    pins = re.findall(r"@v(\d+\.\d+\.\d+)", readme)
+    assert pins, "README has no install pin to verify"
+    stale = sorted({pin for pin in pins if pin != version})
+    assert not stale, (
+        f"README install pins do not match pyproject version {version}: {stale}"
     )
 
 
