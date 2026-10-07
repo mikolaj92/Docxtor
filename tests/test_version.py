@@ -34,6 +34,15 @@ def test_readme_documents_v041_pin_mismatch() -> None:
     assert "v0.4.4" in readme
 
 
+def test_readme_install_pin_matches_pyproject_version() -> None:
+    """The README install pins must track pyproject (the v0.4.1 failure mode)."""
+    version = _pyproject_version()
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert f"@v{version}" in readme, (
+        f"README install pin does not match pyproject version {version}"
+    )
+
+
 def test_pypdf_is_not_a_runtime_dependency() -> None:
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     deps = data["project"]["dependencies"]
