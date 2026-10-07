@@ -110,3 +110,15 @@ def test_all_exported_names_are_importable() -> None:
         name for name in docxtor.__all__ if not hasattr(docxtor, name)
     )
     assert not unimportable, f"__all__ names not importable from docxtor: {unimportable}"
+
+
+def test_readme_import_examples_reference_exports() -> None:
+    """Every name README tells consumers to import from docxtor must be exported."""
+    readme = _readme()
+    names: set[str] = set()
+    for match in re.findall(r"from docxtor import ([^(\n][^\n]*)", readme):
+        names.update(part.strip() for part in match.split(",") if part.strip())
+    for match in re.findall(r"from docxtor import \(([^)]*)\)", readme):
+        names.update(part.strip().rstrip(",") for part in match.split("\n") if part.strip())
+    stale = sorted(names - set(docxtor.__all__))
+    assert not stale, f"README import examples use non-exported names: {stale}"
