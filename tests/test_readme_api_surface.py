@@ -24,6 +24,22 @@ def test_status_does_not_claim_a_small_api() -> None:
     assert "public API is small" not in _readme()
 
 
+_SMALL_API_PHRASES = (
+    "small api",
+    "small interface",
+    "small surface",
+    "small set",
+    "small public",
+)
+
+
+def test_status_does_not_sell_a_small_api_in_any_wording() -> None:
+    """Issue #169: Status must stop describing the API as small, in any wording."""
+    status = _readme().split("## Status", 1)[1].split("\n## ", 1)[0].lower()
+    hits = [phrase for phrase in _SMALL_API_PHRASES if phrase in status]
+    assert not hits, f"README Status still sells a small API (phrases: {hits})"
+
+
 def test_readme_lists_every_exported_name() -> None:
     missing = [name for name in docxtor.__all__ if f"`{name}`" not in _readme()]
     assert not missing, f"README does not list exports: {missing}"
