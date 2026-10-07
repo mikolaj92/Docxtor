@@ -157,3 +157,54 @@ def test_readme_example_apis_exist() -> None:
         f"README examples use DocxDocument members that do not exist: {missing}; "
         "update the examples or the member list"
     )
+
+
+_DTO_FIELDS_USED_IN_EXAMPLES = (
+    ("DocxInventory", "coverage"),
+    ("DocxInventory", "unknown_parts"),
+    ("DocxInventory", "unreadable_parts"),
+    ("DocxInventory", "surfaces"),
+    ("DocumentSurface", "surface_id"),
+    ("DocumentSurface", "kind"),
+    ("DocumentSurface", "capability"),
+    ("DocumentSurface", "value_sha256"),
+    ("DocumentSurface", "external"),
+    ("SurfaceMutationResult", "unresolved"),
+    ("SurfaceMutationResult", "data"),
+    ("SegmentReplacement", "container_id"),
+    ("SegmentReplacement", "text"),
+    ("SegmentReplacement", "start_offset"),
+    ("SegmentReplacement", "end_offset"),
+    ("SegmentReplacement", "span_id"),
+    ("AddressableSpan", "span_id"),
+    ("AddressableSpan", "role"),
+    ("AddressableSpan", "text"),
+    ("TextSegment", "container_id"),
+    ("TextSegment", "text"),
+    ("ParagraphResolution", "identity"),
+    ("ParagraphResolution", "paragraph_index"),
+    ("ParagraphResolution", "value"),
+    ("ParagraphResolution", "runs"),
+    ("RevisionDispositionReceipt", "resolved"),
+)
+
+
+def _dto_member_exists(cls: type, name: str) -> bool:
+    return (
+        name in getattr(cls, "__dataclass_fields__", {})
+        or name in getattr(cls, "__annotations__", {})
+        or hasattr(cls, name)
+    )
+
+
+def test_readme_example_dto_fields_exist() -> None:
+    """DTO fields README examples read must exist on the exported classes."""
+    missing = sorted(
+        f"{cls_name}.{field}"
+        for cls_name, field in _DTO_FIELDS_USED_IN_EXAMPLES
+        if not _dto_member_exists(getattr(docxtor, cls_name), field)
+    )
+    assert not missing, (
+        f"README examples read DTO fields that do not exist: {missing}; "
+        "update the examples or the field list"
+    )
