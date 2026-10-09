@@ -260,7 +260,7 @@ MIT
 It owns:
 - stable addressing (`container_id`, global `paragraph_index` counting empties)
 - rich decomposition (`InlineSegment` with text + opaque, `rpr`, original element)
-- pure offset primitives (`_split_visible_offset`, `_insert_visible`, `_replace_visible_range`, `_rpr_at`, `_visible_text`, ...)
+- pure offset primitives (internal helpers; the public surface is `SegmentReplacement` sub-range offsets via `apply_replacements`)
 - mutation (`apply_targets`, `apply_replacements`, `replace_placeholder`)
 - access and rebuild (`get_inline_segments`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline`)
 
