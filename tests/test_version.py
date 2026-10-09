@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -32,6 +33,33 @@ def test_readme_documents_v041_pin_mismatch() -> None:
     assert "v0.4.1" in readme
     assert "0.4.0" in readme
     assert "v0.4.4" in readme
+
+
+def test_readme_install_pin_matches_pyproject_version() -> None:
+    """Every README install pin must track pyproject (the v0.4.1 failure mode)."""
+    version = _pyproject_version()
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    pins = re.findall(r"@v(\d+\.\d+\.\d+)", readme)
+    assert pins, "README has no install pin to verify"
+    stale = sorted({pin for pin in pins if pin != version})
+    assert not stale, (
+        f"README install pins do not match pyproject version {version}: {stale}"
+    )
+
+
+def test_readme_license_matches_pyproject() -> None:
+    """The README License section must state the pyproject license text."""
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    license_payload = data["project"]["license"]
+    license_text = (
+        license_payload.get("text") if isinstance(license_payload, dict) else license_payload
+    )
+    if not isinstance(license_text, str):
+        raise TypeError(f"unsupported pyproject license payload: {license_payload!r}")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert f"## License\n\n{license_text}" in readme, (
+        f"README License section does not state pyproject license {license_text!r}"
+    )
 
 
 def test_pypdf_is_not_a_runtime_dependency() -> None:
