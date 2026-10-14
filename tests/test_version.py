@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
-from docxtor import __version__
+from docxtor import __all__, __version__
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,8 +28,12 @@ def test_package_version_is_ahead_of_mismatched_tag() -> None:
 
 
 def test_readme_documents_v041_pin_mismatch() -> None:
-    """Consumers must be told not to pin the lying v0.4.1 tag."""
+    """README must document the tag mismatch and the actual public API size."""
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    status = readme.split("\n## Status\n", 1)[1].split("\n## ", 1)[0]
+    counts = re.findall(r"The public API exports ([0-9]+) names\.", status)
+    assert counts == [str(len(__all__))]
+    assert "small" not in status.lower()
     assert "v0.4.1" in readme
     assert "0.4.0" in readme
     assert "v0.4.4" in readme
