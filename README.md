@@ -347,7 +347,7 @@ doc.save_docx("output.docx")
 ['body:p:0', 'body:p:1', 'header:0:p:0', ...]
 ```
 
-`apply_replacements(..., strict=True)` raises on unknown targets or structural drift.
+`apply_replacements(..., strict=True)` raises on unknown targets or bad offsets.
 
 Example with nested revision / hyperlink spans:
 
