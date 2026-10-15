@@ -307,7 +307,7 @@ Temida consumers (posejdon_docs, dike_docs, anonimizator3000, ...) are thin adap
 Docxtor 0.3.0+ uses `python-docx`, a third-party library, as its internal DOCX engine.
 
 Key features:
-- Stable `container_id` (e.g. `"body:p:0"`, `"header:0"`, `"table:0:r:0:c:0:p:0"`, `"txbx:0:p:0"`) and `paragraph_index`.
+- Stable `container_id` (e.g. `"body:p:0"`, `"header:0:p:0"`, `"table:0:r:0:c:0:p:0"`, `"txbx:0:p:0"`) and `paragraph_index`.
 - `SegmentReplacement` for structured edits (full segment or sub-range by character offsets).
 - `apply_replacements(..., strict=True)` — fail-closed on unknown targets or bad offsets.
 - Run splitting for partial replacements inside paragraphs (keeps surrounding run formatting where possible).
@@ -321,7 +321,6 @@ from docxtor import DocxDocument, SegmentReplacement
 doc = DocxDocument.open("input.docx")
 
 print([s.container_id for s in doc.segments])
-# ['body:p:0', 'body:p:1', 'header:0', ...]
 
 # Partial replacement inside a segment (character offsets)
 doc.apply_replacements([
@@ -342,6 +341,10 @@ doc.apply_replacements([
 ], strict=True)
 
 doc.save_docx("output.docx")
+```
+
+```text
+['body:p:0', 'body:p:1', 'header:0:p:0', ...]
 ```
 
 `apply_replacements(..., strict=True)` raises on unknown targets or structural drift.
