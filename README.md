@@ -50,7 +50,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | Format | Read | Write | Notes |
 | --- | --- | --- | --- |
 | TXT/Markdown/text files | yes | same text format when known | Decodes UTF-8, UTF-16, CP1250, or Latin-1 input. |
-| DOCX | yes | DOCX | High-fidelity editing powered by `python-docx`, a third-party dependency (not Python's standard library and not a Microsoft product) for the .docx / WordprocessingML format. Stable `container_id` + `paragraph_index`, whole-segment and offset-based partial replacements with run splitting. |
+| DOCX | yes | DOCX | High-fidelity editing powered by `python-docx`, a third-party dependency (not Python's standard library and not a Microsoft product) for the .docx / WordprocessingML format. Stable `container_id` + `paragraph_index`, whole-segment and offset-based partial replacements via `apply_replacements`; partial replacements update existing `w:t` text nodes without splitting `w:r` runs or creating new formatting boundaries. |
 | PDF | text layer only | PDF | Layout-preserving redaction/overlays when possible; per-page rebuild next; full text reflow only if content no longer fits. OCR is not bundled. |
 
 `load_document` identifies the document kind from bytes first, then consults
@@ -310,7 +310,7 @@ Key features:
 - Stable `container_id` (e.g. `"body:p:0"`, `"header:0:p:0"`, `"table:0:r:0:c:0:p:0"`, `"txbx:0:p:0"`) and `paragraph_index`.
 - `SegmentReplacement` for structured edits (full segment or sub-range by character offsets).
 - `apply_replacements(..., strict=True)` — fail-closed on unknown targets or bad offsets.
-- Run splitting for partial replacements inside paragraphs (keeps surrounding run formatting where possible).
+- Partial replacements via `apply_replacements` update existing `w:t` text nodes without splitting `w:r` runs or creating new formatting boundaries; intermediate text nodes may remain empty.
 - Structured `SegmentReplacement` records and `apply_replacements(..., strict=True)` are the canonical DOCX editing path.
 
 Example with offsets (similar to `WriteTarget` style used in Temida/Posejdon):
