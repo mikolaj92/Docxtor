@@ -5,7 +5,7 @@ from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from zipfile import BadZipFile
+from zipfile import BadZipFile, ZipFile
 
 from docx import Document as PyDocxDocument
 from docx.document import Document as DocxDocumentType
@@ -53,6 +53,7 @@ from .docx_mutations import (
     SurfaceReplacement,
     apply_surface_replacements,
 )
+from .docx_package import parse_package_xml, read_package_entries
 from .docx_review_inventory import inventory_review_markup
 from .docx_review_models import ReviewMarkupInventory
 from .docx_stories import _ParaRef, index_stories
@@ -154,16 +155,14 @@ class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations, DocxHa
 
     def inventory(self) -> DocxInventory:
         """Return a domain-blind inventory of every value carried by the DOCX package."""
-        payload = self._source_bytes if self._source_bytes is not None else self.to_bytes()
-        return inventory_docx(payload)
+        return inventory_docx(self._current_package_bytes())
 
     def apply_surface_replacements(
         self,
         replacements: list[SurfaceReplacement],
     ) -> SurfaceMutationResult:
         """Apply exact package-surface mutations and return verified output bytes."""
-        payload = self._source_bytes if self._source_bytes is not None else self.to_bytes()
-        return apply_surface_replacements(payload, replacements)
+        return apply_surface_replacements(self._current_package_bytes(), replacements)
 
     def resolve_paragraph(self, container_id: str) -> Paragraph | None:
         """Resolve a python-docx Paragraph by stable container_id.
@@ -195,14 +194,6 @@ class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations, DocxHa
         ]
 
     def get_inline_segments(self, container_id: str) -> list[InlineSegment]:
-        """Return the canonical rich InlineSegment decomposition for one paragraph.
-
-        container_id examples: "body:p:0", "header:0:p:0", table cell variants.
-        This is the bridge for review-specific layers to obtain the mechanical view
-        (text + opaque with rpr/element) and then use the pure offset functions
-        (_split_visible_offset, _insert_visible, _replace_visible_range, etc.)
-        without reimplementing paragraph traversal or run decomposition.
-        """
         para = self.resolve_paragraph(container_id)
         if para is None:
             return []
@@ -214,15 +205,6 @@ class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations, DocxHa
         *,
         strict: bool = False,
     ) -> None:
-        """Apply a list of replacement targets.
-
-        Each target can be:
-          - SegmentReplacement
-          - dict with keys: container_id or id, text, optional start_offset/end_offset
-          - object with .container_id, .start_offset, .end_offset, .text (e.g. WriteTarget)
-
-        This is the bridge for ReplacementPlan.write_targets.
-        """
         normalized: list[SegmentReplacement] = []
         for target in targets:
             if isinstance(target, SegmentReplacement):
@@ -395,17 +377,55 @@ class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations, DocxHa
             if seg.id in by_id:
                 self._replace_full_segment(i, by_id[seg.id])
 
-    # ------------------------------------------------------------------
-    # Save / bytes
-    # ------------------------------------------------------------------
     def review_inventory(self) -> ReviewMarkupInventory:
         return inventory_review_markup(self.to_bytes())
 
     def facts(self) -> Any:
         from .docx_facts import docx_facts
 
-        payload = self._source_bytes if self._source_bytes is not None else self.to_bytes()
-        return docx_facts(payload)
+        return docx_facts(self._current_package_bytes())
+
+    def _current_package_bytes(self) -> bytes:
+        payload = self.to_bytes()
+        if self._source_bytes is None:
+            return payload
+        current = {entry.name: entry for entry in read_package_entries(payload)}
+        source = read_package_entries(self._source_bytes)
+        missing = [entry for entry in source if entry.name not in current]
+        if not missing:
+            return payload
+        types_name = "[Content_Types].xml"
+        root = parse_package_xml(current[types_name].data, part_name=types_name)
+        source_types = next(
+            entry for entry in source if entry.name == types_name
+        )
+        source_root = parse_package_xml(source_types.data, part_name=types_name)
+        namespace = "{http://schemas.openxmlformats.org/package/2006/content-types}"
+        attributes = {f"{namespace}Default": "Extension", f"{namespace}Override": "PartName"}
+        declared = {
+            (node.tag, node.get(attributes[node.tag])) for node in root if node.tag in attributes
+        }
+        names = {f"/{entry.name}" for entry in missing}
+        extensions = {Path(entry.name).suffix.removeprefix(".") for entry in missing}
+        for node in source_root:
+            attribute = attributes.get(node.tag)
+            if attribute is None:
+                continue
+            value = node.get(attribute)
+            if (node.tag, value) not in declared and (
+                (attribute == "PartName" and value in names)
+                or (attribute == "Extension" and value in extensions)
+            ):
+                root.append(node)
+                declared.add((node.tag, value))
+        current[types_name] = replace(current[types_name], data=serialize_part_xml(root))
+        buffer = BytesIO()
+        with ZipFile(buffer, "w") as archive:
+            for entry in (*current.values(), *missing):
+                archive.writestr(entry.zip_info(), entry.data)
+        result = buffer.getvalue()
+        read_package_entries(result)
+        return result
 
     def to_bytes(self) -> bytes:
         """Return the stable current package, preserving all source entries."""
@@ -424,10 +444,6 @@ class DocxDocument(DocxLocatorOperations, DocxAlternateContentOperations, DocxHa
             content_type=DOCX_MIME,
             data=self.to_bytes(),
         )
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
 
     def _require_supported_revisions(self) -> None:
         reason = _unsupported_revision_reason(self._doc)
