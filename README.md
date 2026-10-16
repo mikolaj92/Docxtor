@@ -8,13 +8,49 @@ round-trips across plain text files, DOCX files, and text-layer PDFs.
 
 ## Status
 
-Early library. The public API is small, but not stable yet.
+Early library. The public API exports 213 names. The public API is not stable yet.
+
+## Public API
+
+Import these names from `docxtor`. Groups describe their mechanical purpose.
+
+| Group | Exported names |
+| --- | --- |
+| Version | `__version__` |
+| Document types and loading | `DOCX_MIME`, `MD_MIME`, `PDF_MIME`, `TXT_MIME`, `DocumentBytes`, `DocumentError`, `DocumentKind`, `DetectedDocumentType`, `detect_document_type`, `document_to_bytes`, `load_document`, `PdfDocument`, `PdfExtractionMode`, `PlainTextDocument` |
+| DOCX text and inline editing | `AddressableComment`, `AddressableSpan`, `DocxDocument`, `InlineSegment`, `InlineSegmentKind`, `SegmentReplacement`, `SpanRole`, `TextSegment`, `UnsupportedRevisionError`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline` |
+| Paragraph and run locators | `ParagraphLocator`, `ParagraphResolution`, `RunLocator`, `RunResolution` |
+| Comment mutations | `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange` |
+| Document comparison | `compare_docx_documents`, `BlockPair`, `CommentAnchor`, `CommentChange`, `CommentChangeStatus`, `ComparisonCoverage`, `ComparisonDiagnostic`, `DiagnosticSeverity`, `DocumentBlock`, `DocumentComment`, `DocumentSpan`, `DocumentView`, `DocxDocumentComparison`, `FormattingChange`, `FormattingSpan`, `RevisionEvent`, `RevisionEventStatus`, `RevisionReference`, `RevisionResolutionEvidence`, `TextAnchor`, `TextChange`, `TextChangeKind` |
+| Cross-reference diagnostics | `DOCX_CROSS_REFERENCE_PROFILE_ID`, `CrossReferenceDiagnostic`, `CrossReferenceReport`, `CrossReferenceSeverity`, `diagnose_docx_cross_references` |
+| Mechanical facts and structural comparison | `ChangeKind`, `ContainerCoordinate`, `DocxComparison`, `DocxFactsSnapshot`, `DocxStructureSnapshot`, `FactChange`, `FactDiagnostic`, `FactsCoverage`, `NamedFact`, `PageBreakFact`, `PageLayoutFacts`, `ParagraphFact`, `RelationshipFact`, `StoryFact`, `TransformPolicy`, `UnreadablePartFact`, `compare_docx`, `docx_facts` |
+| Package inventory and graph | `DocumentSurface`, `DocxInventory`, `InventoryCoverage`, `PackagePart`, `SurfaceCapability`, `SurfaceKind`, `SurfaceVisibility`, `inventory_docx`, `SURFACE_LOCATOR_VERSION`, `PackageGraph`, `PackageRelationship` |
+| Surface mutations | `SurfaceDisposition`, `SurfaceDispositionStatus`, `SurfaceMutationError`, `SurfaceMutationResult`, `SurfaceReplacement`, `apply_surface_replacements` |
+| OPC content-type validation | `DOCX_CONTENT_TYPES_PROFILE_ID`, `ContentTypeDiagnostic`, `ContentTypeSeverity`, `ContentTypeValidation`, `validate_docx_content_types` |
+| OPC relationship validation | `DOCX_RELATIONSHIP_PROFILE_ID`, `RelationshipDiagnostic`, `RelationshipSeverity`, `RelationshipValidation`, `validate_docx_relationships` |
+| Package reading and publication primitives | `DEFAULT_PACKAGE_LIMITS`, `PackageEntry`, `PackageError`, `PackageLimits`, `normalize_docx_timestamps`, `parse_package_xml`, `read_package_entries`, `restore_semantically_unchanged_xml_parts`, `write_package_atomically` |
+| Package comparison | `PackageChangeReport`, `PackagePartChange`, `PackagePartChangeKind`, `compare_docx_packages` |
+| Core keyword properties | `read_core_keywords`, `remove_core_keyword_values`, `set_core_keywords` |
+| Publication receipts | `PublishError`, `PublishReceipt` |
+| Physical review geometry | `PhysicalCommentAnchor`, `PhysicalCommentRange`, `PhysicalCommentSpan`, `PhysicalParagraphGeometry`, `PhysicalReviewGeometry`, `physical_span_for_semantic_range`, `project_docx_review_geometry`, `add_physical_comment_bytes` |
+| Review markup inventory and batches | `inventory_review_markup`, `CommentRevisionAssociation`, `OperationReceipt`, `OperationStatus`, `ReviewBatchReceipt`, `ReviewCoverage`, `ReviewDiagnostic`, `ReviewMarkupInventory`, `ReviewCommand`, `ReviewTransactionError`, `apply_review_batch` |
+| Revision mutations | `RevisionAuthor`, `RevisionMutationError`, `RevisionMutationResult`, `RevisionPosition`, `RevisionRange` |
+| Selective revision disposition | `dispose_revisions_bytes`, `inspect_revision_dispositions`, `RevisionDecision`, `RevisionDisposition`, `RevisionDispositionCoverage`, `RevisionDispositionDiagnostic`, `RevisionDispositionInventory`, `RevisionDispositionReceipt`, `RevisionDispositionResult`, `RevisionDispositionTarget`, `RevisionSelectionError` |
+| Revision inventory and bulk cleanup | `AcceptRevisionsError`, `RejectRevisionsError`, `Revision`, `RevisionInventory`, `RevisionInventoryCoverage`, `RevisionKind`, `RevisionOperation`, `RevisionOperationError`, `RevisionOperationReceipt`, `accept_all_revisions_bytes`, `inventory_revisions_bytes`, `reject_all_revisions_bytes`, `remove_all_comments_bytes` |
+| DOCX admission | `DocumentPackageKind`, `DocxAdmissionInspection`, `inspect_docx_admission` |
+| Package and combined transactions | `CombinedTransactionReceipt`, `apply_docx_transaction`, `PackageDisposition`, `PackageDispositionStatus`, `PackageMutation`, `PackageMutationError`, `PackageMutationKind`, `PackageTransactionReceipt`, `apply_package_transaction` |
+| DOCX creation | `DocxCreationError`, `create_docx_from_paragraphs`, `write_docx_from_paragraphs` |
+| Hyperlink fields | `flatten_link_fields`, `instruction_is_strippable_hyperlink_field` |
+| Metadata inspection and sanitization | `MetadataInspection`, `inspect_docx_metadata`, `sanitize_docx_metadata` |
+| Publication marks and appendices | `BodyAppendix`, `DocumentMark`, `PublicationMarkError`, `append_body_appendix`, `has_body_appendix`, `has_document_mark`, `remove_body_appendix`, `stamp_document_mark`, `write_publication_bytes` |
+| Review projection | `DocxReviewProjection`, `ReviewNoteProjection`, `ReviewParagraphProjection`, `project_docx_for_review` |
+| Physical review rendering | `PhysicalReviewComment`, `PhysicalReviewEdit`, `PhysicalReviewer`, `PhysicalReviewNote`, `PhysicalReviewPlan`, `PhysicalReviewRenderError`, `render_physical_clean`, `render_physical_review` |
 
 ## Supported Formats
 | Format | Read | Write | Notes |
 | --- | --- | --- | --- |
 | TXT/Markdown/text files | yes | same text format when known | Decodes UTF-8, UTF-16, CP1250, or Latin-1 input. |
-| DOCX | yes | DOCX | High-fidelity editing powered by `python-docx` (the standard library for Microsoft's .docx format). Stable `container_id` + `paragraph_index`, whole-segment and offset-based partial replacements with run splitting. |
+| DOCX | yes | DOCX | High-fidelity editing powered by `python-docx`, a third-party dependency (not Python's standard library and not a Microsoft product) for the .docx / WordprocessingML format. Stable `container_id` + `paragraph_index`, whole-segment and offset-based partial replacements via `apply_replacements`; partial replacements update existing `w:t` text nodes without splitting `w:r` runs or creating new formatting boundaries. |
 | PDF | text layer only | PDF | Layout-preserving redaction/overlays when possible; per-page rebuild next; full text reflow only if content no longer fits. OCR is not bundled. |
 
 `load_document` identifies the document kind from bytes first, then consults
@@ -74,6 +110,12 @@ parts that `python-docx` cannot reach through relationships. It exposes neutral
 `DocumentSurface` records for XML text, XML attributes, and relationship targets.
 Each surface has a stable ID, value hash, visibility, and mechanical capability
 such as `value_replace` or `preserve_only`.
+
+`inventory()`, `facts()`, and `apply_surface_replacements()` read the current
+in-memory XML, including prior text replacements, while retaining orphan parts
+and their content types. The original opening bytes remain the publication
+source. Surface mutations return verified bytes in `result.data`; they do not
+update the document instance.
 
 ```python
 from docxtor import DocxDocument, InventoryCoverage
@@ -260,7 +302,7 @@ MIT
 It owns:
 - stable addressing (`container_id`, global `paragraph_index` counting empties)
 - rich decomposition (`InlineSegment` with text + opaque, `rpr`, original element)
-- pure offset primitives (`_split_visible_offset`, `_insert_visible`, `_replace_visible_range`, `_rpr_at`, `_visible_text`, ...)
+- pure offset primitives (internal helpers; the public surface is `SegmentReplacement` sub-range offsets via `apply_replacements`)
 - mutation (`apply_targets`, `apply_replacements`, `replace_placeholder`)
 - access and rebuild (`get_inline_segments`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline`)
 
@@ -268,13 +310,13 @@ Reviewkit (and Dike via it) delegates base paragraph/run/offset work to Docxtor 
 
 Temida consumers (posejdon_docs, dike_docs, anonimizator3000, ...) are thin adapters or high-level users. They contain **no** custom run splitting, offset math, or paragraph-mutation logic.
 
-Docxtor 0.3.0+ uses `python-docx` (the standard, mature library for Microsoft's .docx / WordprocessingML format) as its internal DOCX engine.
+Docxtor 0.3.0+ uses `python-docx`, a third-party library, as its internal DOCX engine.
 
 Key features:
-- Stable `container_id` (e.g. `"body:p:0"`, `"header:0"`, `"table:0:r:0:c:0:p:0"`, `"txbx:0:p:0"`) and `paragraph_index`.
+- Stable `container_id` (e.g. `"body:p:0"`, `"header:0:p:0"`, `"table:0:r:0:c:0:p:0"`, `"txbx:0:p:0"`) and `paragraph_index`.
 - `SegmentReplacement` for structured edits (full segment or sub-range by character offsets).
 - `apply_replacements(..., strict=True)` — fail-closed on unknown targets or bad offsets.
-- Run splitting for partial replacements inside paragraphs (keeps surrounding run formatting where possible).
+- Partial replacements via `apply_replacements` update existing `w:t` text nodes without splitting `w:r` runs or creating new formatting boundaries; intermediate text nodes may remain empty.
 - Structured `SegmentReplacement` records and `apply_replacements(..., strict=True)` are the canonical DOCX editing path.
 
 Example with offsets (similar to `WriteTarget` style used in Temida/Posejdon):
@@ -285,7 +327,6 @@ from docxtor import DocxDocument, SegmentReplacement
 doc = DocxDocument.open("input.docx")
 
 print([s.container_id for s in doc.segments])
-# ['body:p:0', 'body:p:1', 'header:0', ...]
 
 # Partial replacement inside a segment (character offsets)
 doc.apply_replacements([
@@ -308,7 +349,11 @@ doc.apply_replacements([
 doc.save_docx("output.docx")
 ```
 
-`apply_replacements(..., strict=True)` raises on unknown targets or structural drift.
+```text
+['body:p:0', 'body:p:1', 'header:0:p:0', ...]
+```
+
+`apply_replacements(..., strict=True)` raises on unknown targets or bad offsets.
 
 Example with nested revision / hyperlink spans:
 
