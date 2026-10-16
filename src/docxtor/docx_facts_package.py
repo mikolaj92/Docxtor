@@ -49,10 +49,12 @@ def _content_type_map(
 
 
 def _content_type_for(name: str, defaults: dict[str, str], overrides: dict[str, str]) -> str:
+    # OPC uses the text after the last dot, including the root ".rels" part.
+    _, separator, extension = PurePosixPath(name).name.rpartition(".")
     return overrides.get(
         name,
         defaults.get(
-            PurePosixPath(name).suffix.lstrip(".").lower(),
+            extension.lower() if separator else "",
             "application/octet-stream",
         ),
     )

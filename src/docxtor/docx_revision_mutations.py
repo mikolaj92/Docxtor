@@ -18,7 +18,7 @@ from .docx_inline import (
     paragraph_to_inline_segments,
 )
 from .docx_ns import _TEXT_NODE_TAGS
-from .docx_review_models import OperationReceipt, OperationStatus
+from .docx_review_models import OperationReceipt, OperationStatus, PhysicalTextInsertion
 from .docx_revisions import RevisionInventory, inventory_revisions_bytes
 from .docx_stories import index_stories
 from .docx_xml import _is_text_box_container
@@ -107,7 +107,34 @@ def insert_revision(
     wrapped = "".join(_run_plain_text(child) for child in wrapper if child.tag == qn("w:r"))
     if wrapped != text:
         raise RevisionMutationError(f"revision range cannot be mapped at {position.locator}")
-    return _result(data, document, "insert_revision", position.locator, revision_id)
+    from .docx_review_geometry import _marker_coordinates
+
+    actual_offset = 0
+    child = wrapper
+    while child is not paragraph._p:
+        parent = child.getparent()
+        if parent is None:
+            raise RevisionMutationError("inserted revision has no paragraph origin")
+        actual_offset += sum(
+            len(_marker_coordinates(sibling)[1]) for sibling in list(parent)[: parent.index(child)]
+        )
+        child = parent
+    from .docx_comment_scopes import expand_scope_bookmarks_for_insertion
+
+    expand_scope_bookmarks_for_insertion(
+        data, paragraph._p, wrapper, position.locator, actual_offset
+    )
+    rendered = _aligned_visible_text(paragraph, position.locator)
+    if rendered != visible[:actual_offset] + text + visible[actual_offset:]:
+        raise RevisionMutationError("inserted revision has no exact raw source transformation")
+    return _result(
+        data,
+        document,
+        "insert_revision",
+        position.locator,
+        revision_id,
+        text_insertions=(PhysicalTextInsertion(position.locator, actual_offset, len(text)),),
+    )
 
 
 def delete_revision(
@@ -289,11 +316,7 @@ def _split_at_visible(paragraph: Any, offset: int) -> None:
     cursor = 0
     for piece in _live_pieces(paragraph):
         width = len(piece.text)
-        if (
-            piece.kind == "text"
-            and piece.run is not None
-            and cursor < offset < cursor + width
-        ):
+        if piece.kind == "text" and piece.run is not None and cursor < offset < cursor + width:
             _split_text_run(piece.run, offset - cursor)
             return
         cursor += width
@@ -393,6 +416,8 @@ def _result(
     operation: str,
     locator: str,
     revision_id: int,
+    *,
+    text_insertions: tuple[PhysicalTextInsertion, ...] = (),
 ) -> RevisionMutationResult:
     before = inventory_revisions_bytes(source)
     payload = _serialize(document)
@@ -410,6 +435,7 @@ def _result(
             locator=locator,
             before_sha256=sha256(source).hexdigest(),
             after_sha256=sha256(payload).hexdigest(),
+            text_insertions=text_insertions,
         ),
         before=before,
         after=after,

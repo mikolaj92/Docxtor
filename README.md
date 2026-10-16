@@ -8,7 +8,7 @@ round-trips across plain text files, DOCX files, and text-layer PDFs.
 
 ## Status
 
-Early library. The public API exports 213 names. The public API is not stable yet.
+Early library. The public API exports 217 names. The public API is not stable yet.
 
 ## Public API
 
@@ -20,7 +20,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | Document types and loading | `DOCX_MIME`, `MD_MIME`, `PDF_MIME`, `TXT_MIME`, `DocumentBytes`, `DocumentError`, `DocumentKind`, `DetectedDocumentType`, `detect_document_type`, `document_to_bytes`, `load_document`, `PdfDocument`, `PdfExtractionMode`, `PlainTextDocument` |
 | DOCX text and inline editing | `AddressableComment`, `AddressableSpan`, `DocxDocument`, `InlineSegment`, `InlineSegmentKind`, `SegmentReplacement`, `SpanRole`, `TextSegment`, `UnsupportedRevisionError`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline` |
 | Paragraph and run locators | `ParagraphLocator`, `ParagraphResolution`, `RunLocator`, `RunResolution` |
-| Comment mutations | `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange` |
+| Comment mutations | `CommentScopeBookmark`, `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange` |
 | Document comparison | `compare_docx_documents`, `BlockPair`, `CommentAnchor`, `CommentChange`, `CommentChangeStatus`, `ComparisonCoverage`, `ComparisonDiagnostic`, `DiagnosticSeverity`, `DocumentBlock`, `DocumentComment`, `DocumentSpan`, `DocumentView`, `DocxDocumentComparison`, `FormattingChange`, `FormattingSpan`, `RevisionEvent`, `RevisionEventStatus`, `RevisionReference`, `RevisionResolutionEvidence`, `TextAnchor`, `TextChange`, `TextChangeKind` |
 | Cross-reference diagnostics | `DOCX_CROSS_REFERENCE_PROFILE_ID`, `CrossReferenceDiagnostic`, `CrossReferenceReport`, `CrossReferenceSeverity`, `diagnose_docx_cross_references` |
 | Mechanical facts and structural comparison | `ChangeKind`, `ContainerCoordinate`, `DocxComparison`, `DocxFactsSnapshot`, `DocxStructureSnapshot`, `FactChange`, `FactDiagnostic`, `FactsCoverage`, `NamedFact`, `PageBreakFact`, `PageLayoutFacts`, `ParagraphFact`, `RelationshipFact`, `StoryFact`, `TransformPolicy`, `UnreadablePartFact`, `compare_docx`, `docx_facts` |
@@ -32,7 +32,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | Package comparison | `PackageChangeReport`, `PackagePartChange`, `PackagePartChangeKind`, `compare_docx_packages` |
 | Core keyword properties | `read_core_keywords`, `remove_core_keyword_values`, `set_core_keywords` |
 | Publication receipts | `PublishError`, `PublishReceipt` |
-| Physical review geometry | `PhysicalCommentAnchor`, `PhysicalCommentRange`, `PhysicalCommentSpan`, `PhysicalParagraphGeometry`, `PhysicalReviewGeometry`, `physical_span_for_semantic_range`, `project_docx_review_geometry`, `add_physical_comment_bytes` |
+| Physical review geometry | `PhysicalCommentAnchor`, `PhysicalCommentRange`, `PhysicalCommentSpan`, `PhysicalParagraphGeometry`, `PhysicalReviewGeometry`, `PhysicalTextOrigin`, `PhysicalTextInsertion`, `physical_span_for_semantic_range`, `project_docx_review_geometry`, `add_physical_comment_bytes`, `add_physical_comment_regions_bytes` |
 | Review markup inventory and batches | `inventory_review_markup`, `CommentRevisionAssociation`, `OperationReceipt`, `OperationStatus`, `ReviewBatchReceipt`, `ReviewCoverage`, `ReviewDiagnostic`, `ReviewMarkupInventory`, `ReviewCommand`, `ReviewTransactionError`, `apply_review_batch` |
 | Revision mutations | `RevisionAuthor`, `RevisionMutationError`, `RevisionMutationResult`, `RevisionPosition`, `RevisionRange` |
 | Selective revision disposition | `dispose_revisions_bytes`, `inspect_revision_dispositions`, `RevisionDecision`, `RevisionDisposition`, `RevisionDispositionCoverage`, `RevisionDispositionDiagnostic`, `RevisionDispositionInventory`, `RevisionDispositionReceipt`, `RevisionDispositionResult`, `RevisionDispositionTarget`, `RevisionSelectionError` |
@@ -61,16 +61,16 @@ the MIME type and file extension as secondary signals.
 From GitHub:
 
 ```bash
-python -m pip install git+https://github.com/mikolaj92/Docxtor.git@v0.18.0
+python -m pip install git+https://github.com/mikolaj92/Docxtor.git@v0.19.0
 ```
 
 With `uv`:
 
 ```bash
-uv add git+https://github.com/mikolaj92/Docxtor.git@v0.18.0
+uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.0
 ```
 
-Pin the current release tag `v0.18.0` (matching `pyproject.toml`). For the
+Pin the current release tag `v0.19.0` (matching `pyproject.toml`). For the
 feature history of earlier releases, see the git tags and `docs/releases/`.
 
 > Historical note only: tag `v0.4.1` still shipped distribution version
@@ -456,6 +456,74 @@ refuse instead of reporting success for a range they did not wrap.
 empty document from incomplete coverage. Unsupported structural revisions fail
 closed. `apply_review_batch()` returns no intermediate bytes if any command
 fails.
+
+#### Source-bound comment regions
+
+`DocxDocument.review_geometry()` inventories body paragraphs, tables, headers,
+footers, user notes, and paragraph-bearing text boxes. Comment bodies remain
+separate context stories. Separator notes are excluded. The geometry carries
+an exact source SHA-256 and ordered spans for each physical story.
+
+`physical_span_for_semantic_range()` maps effective text through typed
+`PhysicalTextOrigin` records. Inserted text participates in the effective view.
+Deleted text keeps its raw source coordinates. A mapped range can include
+intervening deleted text without removing or accepting that revision.
+
+`DocxDocument.add_physical_comment_regions(regions, text, author,
+document_sha256=source_sha256)` creates one native comment for each story region.
+Each region is a tuple of `PhysicalCommentSpan` values. The operation validates
+all regions before mutation and adopts only the complete candidate. Call
+`publish()` to atomically write the resulting handle.
+
+The comments store their shared `regionSet` identity and `regionSetSize` in a
+Docxtor namespace inside DOCX. `AddressableComment.region_set_id` and
+`region_set_size` expose these values after reload. Missing members and
+conflicting sizes make review inventory incomplete. No sidecar file is used.
+
+Word ignores `commentReference` inside headers, footers, text boxes, footnotes,
+and endnotes. This behavior is documented in
+[MS-OI29500 §17.13.4.5](https://learn.microsoft.com/en-nz/openspecs/office_standards/ms-oi29500/84a35ef3-9c12-4b59-ab4c-4a88f520d06c).
+New comments on these stories use a visible native body display anchor and a
+native hyperlink to a hidden bookmark at the exact logical target. Notes use
+their body reference. Text boxes use their body host. Headers and footers use
+their section reference. No body text or paragraph identity is invented.
+
+`PhysicalCommentAnchor.spans` exposes the logical target. `display_spans` exposes
+the native body display range. `display_visible` distinguishes a body display
+anchor from incoming non-body native comments, which remain unchanged.
+`PhysicalReviewGeometry.scope_bookmarks` exposes validated `CommentScopeBookmark`
+ownership. Missing links, duplicate identities, incomplete groups, and targets
+that cross stories fail closed. Multi-story groups encode their identity and
+member count in native bookmark names, including their body member.
+
+`AddressableComment.text` contains the actual Word comment text, including its
+scope hyperlink label. `user_note_text` contains the remark without that label
+only when the provider has validated the native bridge. Updating one member
+updates the logical region set and retains each native scope link. Cleanup
+removes only proved owned bookmarks and reports them in
+`OperationReceipt.removed_scope_bookmarks`. Existing user bookmarks stay intact.
+These structural guarantees do not claim a completed live Word rendering check.
+
+A native reply without markers inherits its parent's proved physical scope.
+The parent graph rejects unresolved identities, cycles, and conflicting scopes.
+Partial markers cannot inherit a scope. `PhysicalCommentAnchor.anchor_evidence`
+reports the proved explicit or inherited anchor. The older
+`AddressableComment.anchor_evidence` reports marker or parent-graph provenance
+without changing its legacy locator and anchor-text fields.
+
+`remove_comments()` expands a selection to its complete native region sets and
+all descendant replies. It removes their range markers and thread identities in
+one transaction. `OperationReceipt.removed_ids` lists the complete selection.
+Unselected comment bodies, thread records, and native revisions remain intact.
+
+`DocxDocument.map_review_spans(source_sha256, spans)` follows native mutation
+receipts on the same open handle. It returns current raw envelopes for captured
+source spans. A tracked deletion retains its raw range. A tracked insertion
+expands the envelope at its proved source position. `PhysicalTextInsertion`
+records carry the actual physical insertion offset, including insertions next
+to existing deleted text. Unknown mutations and broken snapshot chains raise.
+`apply_review_batch()` returns its typed receipts and records the same mapping.
+This history is transient execution state and is not a second document format.
 
 #### Selective disposition of existing revisions
 
