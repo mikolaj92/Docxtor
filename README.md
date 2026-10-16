@@ -384,9 +384,11 @@ Both renderers take `source` as a DOCX path (`str` or `Path`) or `bytes`, take
 `render_physical_review` takes a `PhysicalReviewPlan` and an optional keyword-only
 `PhysicalReviewer` (defaulting to `PhysicalReviewer()`) to create review markup;
 `render_physical_clean` takes a tuple of `PhysicalReviewEdit` values and applies
-inline edits without new tracked-change markup, skipping whole-paragraph insertions.
+inline edits without new tracked-change markup, skipping edits with `new_paragraph=True`.
 Unknown locators, invalid inline ranges, and mismatched `expected_text` raise
-`PhysicalReviewRenderError` before publication; not all input errors are wrapped.
+`PhysicalReviewRenderError` before publication. Source reading and opening precede
+exception handling, so not all input errors are wrapped; neither renderer guarantees
+atomicity of the entire call.
 
 Text replacement and deletion through `render_physical_review` or
 `render_physical_clean` preserve structurally empty inline content controls
