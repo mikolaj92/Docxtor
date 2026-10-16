@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from io import BytesIO
 from typing import Any
@@ -45,6 +45,14 @@ class PhysicalCommentRange:
 
 
 @dataclass(frozen=True)
+class PhysicalTextOrigin:
+    effective_start: int
+    effective_end: int
+    source_start: int
+    source_end: int
+
+
+@dataclass(frozen=True)
 class PhysicalParagraphGeometry:
     locator: str
     text: str
@@ -58,6 +66,8 @@ class PhysicalParagraphGeometry:
     opaque_ranges: tuple[tuple[int, int], ...] = ()
     has_revisions: bool = False
     addressable: bool = True
+    effective_text: str = ""
+    text_origins: tuple[PhysicalTextOrigin, ...] = ()
 
     @property
     def span(self) -> PhysicalCommentSpan:
@@ -74,6 +84,7 @@ class PhysicalCommentAnchor:
     document_sha256: str
     coverage: ReviewCoverage
     diagnostics: tuple[ReviewDiagnostic, ...] = ()
+    anchor_evidence: str | None = field(default=None, compare=False)
 
     @property
     def addressable(self) -> bool:
@@ -142,15 +153,9 @@ def physical_span_for_semantic_range(
     end_offset: int,
     expected_text: str,
 ) -> PhysicalCommentSpan:
-    """Map the strict strip-only semantic view of an unrevised paragraph to source.
-
-    This deliberately supports no normalization beyond leading/trailing whitespace.
-    Revision-bearing paragraphs require a separate proved origin projection.
-    """
-    if not paragraph.addressable or paragraph.has_revisions:
+    """Map effective text through exact source-node origins, retaining revision nodes."""
+    if not paragraph.addressable:
         raise ValueError("paragraph has no supported semantic-to-physical coordinate mapping")
-    if paragraph.text.strip() != semantic_text:
-        raise ValueError("semantic text does not match the supported strip-only source profile")
     if (
         type(start_offset) is not int
         or type(end_offset) is not int
@@ -158,11 +163,85 @@ def physical_span_for_semantic_range(
         or semantic_text[start_offset:end_offset] != expected_text
     ):
         raise ValueError("semantic range does not match its captured paragraph text")
+    if paragraph.has_revisions:
+        source = paragraph.effective_text
+        if source.strip() != semantic_text:
+            raise ValueError("semantic text differs from the source-proven effective profile")
+        leading = len(source) - len(source.lstrip())
+        start, end = leading + start_offset, leading + end_offset
+        origins = paragraph.text_origins
+        if start == end:
+            positions = [
+                item.source_start + start - item.effective_start
+                for item in origins
+                if item.effective_start <= start < item.effective_end
+            ]
+            physical_start = positions[0] if positions else len(paragraph.text)
+            physical_end = physical_start
+        else:
+            first = next(
+                (item for item in origins if item.effective_start <= start < item.effective_end),
+                None,
+            )
+            last = next(
+                (item for item in origins if item.effective_start < end <= item.effective_end), None
+            )
+            if first is None or last is None:
+                raise ValueError("semantic endpoints have no proved source origin")
+            physical_start = first.source_start + start - first.effective_start
+            physical_end = last.source_start + end - last.effective_start
+        return PhysicalCommentSpan(
+            paragraph.locator,
+            physical_start,
+            physical_end,
+            paragraph.text[physical_start:physical_end],
+        )
+    if paragraph.text.strip() != semantic_text:
+        raise ValueError("semantic text does not match the supported strip-only source profile")
     leading = len(paragraph.text) - len(paragraph.text.lstrip())
     start, end = leading + start_offset, leading + end_offset
-    if paragraph.text[start:end] != expected_text:
-        raise ValueError("semantic range cannot be proved against the physical source")
-    return PhysicalCommentSpan(paragraph.locator, start, end, expected_text)
+    return PhysicalCommentSpan(paragraph.locator, start, end, paragraph.text[start:end])
+
+
+def _effective_origins(paragraph: Any) -> tuple[str, tuple[PhysicalTextOrigin, ...]]:
+    raw_offset = effective_offset = 0
+    values: list[str] = []
+    origins: list[PhysicalTextOrigin] = []
+
+    def walk(node: Any, deleted: bool = False) -> None:
+        nonlocal raw_offset, effective_offset
+        if node is not paragraph and _is_text_box_container(node.tag):
+            return
+        if node.tag in {qn("w:pPr"), qn("w:rPr")}:
+            return
+        if node.tag == f"{{{MC_NS}}}AlternateContent":
+            walk(select_alternate_branch(node).selected, deleted)
+            return
+        deleted = deleted or node.tag in {qn("w:del"), qn("w:moveFrom")}
+        value = None
+        if node.tag in _TEXT_NODE_TAGS:
+            value = node.text or ""
+        elif node.tag in {qn("w:tab"), qn("w:br"), qn("w:cr")}:
+            value = "\t" if node.tag == qn("w:tab") else "\n"
+        if value is not None:
+            if not deleted and value:
+                origins.append(
+                    PhysicalTextOrigin(
+                        effective_offset,
+                        effective_offset + len(value),
+                        raw_offset,
+                        raw_offset + len(value),
+                    )
+                )
+                values.append(value)
+                effective_offset += len(value)
+            raw_offset += len(value)
+            return
+        for child in node:
+            walk(child, deleted)
+
+    walk(paragraph)
+    return "".join(values), tuple(origins)
 
 
 def _read_geometry_state(data: bytes) -> _GeometryState:
@@ -241,6 +320,7 @@ def _read_geometry_state(data: bytes) -> _GeometryState:
             ppr = original.find(qn("w:pPr"))
             style = ppr.find(qn("w:pStyle")) if ppr is not None else None
             style_id = style.get(qn("w:val"), "") if style is not None else ""
+            effective_text, text_origins = _effective_origins(original)
             physical = PhysicalParagraphGeometry(
                 locator=locator,
                 text=text,
@@ -254,6 +334,8 @@ def _read_geometry_state(data: bytes) -> _GeometryState:
                 opaque_ranges=tuple(opaque),
                 has_revisions=_has_revisions(original),
                 addressable=addressable,
+                effective_text=effective_text,
+                text_origins=text_origins,
             )
             story_counts[story_id] = physical.story_order_index + 1
             record = _GeometryParagraph(physical, original, ordinal)
@@ -295,6 +377,10 @@ def _read_geometry_state(data: bytes) -> _GeometryState:
                 markers.setdefault(comment_id, []).append(
                     _Marker(kind, record, offsets.get(element), order, part_name)
                 )
+        from .docx_comment_threads import comment_parent_graph
+
+        parents, thread_issues = comment_parent_graph(roots)
+        diagnostics.extend(item for item in thread_issues if item not in diagnostics)
         anchors = []
         for comment_id in sorted(bodies.keys() | markers.keys()):
             anchor = _project_anchor(
@@ -305,6 +391,39 @@ def _read_geometry_state(data: bytes) -> _GeometryState:
                 digest,
             )
             anchors.append(anchor)
+        by_id = {anchor.comment_id: anchor for anchor in anchors}
+        resolved: dict[str, PhysicalCommentAnchor] = {}
+
+        def resolve(identity: str, visiting: frozenset[str] = frozenset()) -> PhysicalCommentAnchor:
+            if identity in resolved:
+                return resolved[identity]
+            anchor = by_id[identity]
+            parent_id = parents.get(identity)
+            if parent_id is None or thread_issues:
+                resolved[identity] = anchor
+                return anchor
+            if identity in visiting or parent_id not in by_id:
+                return anchor
+            parent = resolve(parent_id, visiting | {identity})
+            if parent.addressable:
+                if not markers.get(identity) and bodies.get(identity) == 1:
+                    anchor = replace(
+                        parent, comment_id=identity, anchor_evidence=f"inherited:{parent_id}"
+                    )
+                elif anchor.addressable and anchor.spans != parent.spans:
+                    anchor = replace(
+                        anchor,
+                        spans=(),
+                        coverage=ReviewCoverage.INCOMPLETE,
+                        diagnostics=(
+                            ReviewDiagnostic("conflicting_comment_thread_scope", identity),
+                        ),
+                    )
+            resolved[identity] = anchor
+            return anchor
+
+        anchors = [resolve(anchor.comment_id) for anchor in anchors]
+        for anchor in anchors:
             diagnostics.extend(anchor.diagnostics)
         projection = PhysicalReviewGeometry(
             paragraphs=tuple(record.geometry for record in paragraphs.values()),
@@ -616,4 +735,5 @@ def _project_anchor(
         digest,
         ReviewCoverage.INCOMPLETE if issues else ReviewCoverage.COMPLETE,
         tuple(issues),
+        "explicit" if not issues else None,
     )

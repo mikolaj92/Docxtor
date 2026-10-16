@@ -57,6 +57,13 @@ class ReviewMarkupInventory:
 
 
 @dataclass(frozen=True)
+class PhysicalTextInsertion:
+    locator: str
+    start_offset: int
+    length: int
+
+
+@dataclass(frozen=True)
 class OperationReceipt:
     operation: str
     status: OperationStatus
@@ -66,6 +73,8 @@ class OperationReceipt:
     before_sha256: str | None = None
     after_sha256: str | None = None
     diagnostics: tuple[ReviewDiagnostic, ...] = ()
+    text_insertions: tuple[PhysicalTextInsertion, ...] = ()
+    removed_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

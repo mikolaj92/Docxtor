@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .common import DocumentError
@@ -148,6 +148,9 @@ class AddressableComment:
     anchor_text: str = ""
     parent_id: str | None = None
     date: str | None = None
+    region_set_id: str | None = None
+    region_set_size: int | None = None
+    anchor_evidence: str | None = field(default=None, compare=False)
 
 
 @dataclass

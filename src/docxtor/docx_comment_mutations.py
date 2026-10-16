@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 from io import BytesIO
-from typing import Any, cast
+from typing import Any
 
 from docx import Document as PyDocxDocument
 from docx.oxml.ns import qn
@@ -197,63 +197,10 @@ def update_comment(
 
 
 def remove_comments(data: bytes, comment_ids: set[str] | None = None) -> CommentMutationResult:
-    """Remove selected comments (or every comment) and all range/reference markers."""
-    doc = PyDocxDocument(BytesIO(data))
-    stories = index_stories(doc)
-    existing = {comment.comment_id for comment in stories.comments}
-    selected = existing if comment_ids is None else set(comment_ids)
-    missing = selected - existing
-    if missing:
-        raise CommentMutationError(f"unknown comment IDs: {sorted(missing)}")
-    for root in _story_roots(doc):
-        for node in list(root.iter()):
-            if node.tag not in {
-                qn("w:commentRangeStart"),
-                qn("w:commentRangeEnd"),
-                qn("w:commentReference"),
-            }:
-                continue
-            comment_id = node.get(qn("w:id"))
-            if comment_id not in selected:
-                continue
-            owner = node.getparent()
-            if (
-                owner is not None
-                and node.tag == qn("w:commentReference")
-                and owner.tag == qn("w:r")
-            ):
-                parent = owner.getparent()
-                if parent is not None:
-                    parent.remove(owner)
-            elif owner is not None:
-                owner.remove(node)
-    comments_part = cast(
-        Any,
-        doc.part.part_related_by(
-            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"
-        ),
-    )
-    for comment in list(comments_part.element.findall(qn("w:comment"))):
-        if comment.get(qn("w:id")) in selected:
-            comments_part.element.remove(comment)
-    payload = _serialize(doc)
-    after = index_stories(PyDocxDocument(BytesIO(payload)))
-    remaining = {comment.comment_id for comment in after.comments}
-    if selected & remaining:
-        raise CommentMutationError("comment removal was not confirmed after round-trip")
-    status = OperationStatus.APPLIED if selected else OperationStatus.NOOP
-    return CommentMutationResult(
-        data=payload,
-        receipt=OperationReceipt(
-            operation="remove_comments",
-            status=status,
-            affected_parts=("word/comments.xml",) if selected else (),
-            created_ids=(),
-            before_sha256=sha256(data).hexdigest(),
-            after_sha256=sha256(payload).hexdigest(),
-        ),
-        comments=tuple(after.comments),
-    )
+    """Remove complete native region sets and descendants in one transaction."""
+    from .docx_comment_removal import remove_comment_sets
+
+    return remove_comment_sets(data, comment_ids)
 
 
 _COMMENT_MARKUP_TAGS = {
@@ -302,22 +249,6 @@ def _comment_range_runs(
     if first.tag != qn("w:r") or last.tag != qn("w:r"):
         raise CommentMutationError("comment range cannot be mapped to runs")
     return Run(first, paragraph), Run(last, paragraph)
-
-
-def _story_roots(doc: Any) -> list[Any]:
-    roots = [doc.element]
-    for section in doc.sections:
-        for story in (
-            section.header,
-            section.first_page_header,
-            section.even_page_header,
-            section.footer,
-            section.first_page_footer,
-            section.even_page_footer,
-        ):
-            if story._has_definition:
-                roots.append(story._definition.element)
-    return roots
 
 
 def _apply_comment_author(document: Any, comment_id: str, author: CommentAuthor) -> None:

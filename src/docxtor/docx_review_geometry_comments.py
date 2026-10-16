@@ -9,6 +9,7 @@ from hashlib import sha256
 from io import BytesIO
 from posixpath import basename, dirname, join, normpath
 from typing import Any
+from uuid import uuid4
 from zipfile import ZipFile
 
 from docx import Document as PyDocxDocument
@@ -21,6 +22,7 @@ from .docx_ns import _TEXT_NODE_TAGS, CT_NS, REL_NS
 from .docx_package import PackageEntry, parse_package_xml, read_package_entries
 from .docx_review_geometry import (
     PhysicalCommentRange,
+    PhysicalCommentSpan,
     _GeometryState,
     _marker_coordinates,
     _read_geometry_state,
@@ -122,6 +124,8 @@ def add_physical_comment_bytes(
         )
         if kept is None or replace(kept, document_sha256=old.document_sha256) != old:
             raise CommentMutationError("existing physical comment anchors were not preserved")
+    if _revision_identity(state) != _revision_identity(after):
+        raise CommentMutationError("existing native revisions were not preserved")
     for old in state.projection.paragraphs:
         kept = after.paragraphs.get(old.locator)
         if kept is None or kept.geometry.text != old.text or kept.geometry.story_id != old.story_id:
@@ -162,6 +166,110 @@ def add_physical_comment_bytes(
             after_sha256=sha256(payload).hexdigest(),
         ),
         comments=comments,
+    )
+
+
+def _revision_identity(state: _GeometryState) -> tuple[tuple[str, str, tuple, str], ...]:
+    tags = {
+        qn(f"w:{name}") for name in ("ins", "del", "moveFrom", "moveTo", "pPrChange", "rPrChange")
+    }
+    return tuple(
+        (name, node.tag, tuple(sorted(node.attrib.items())), _marker_coordinates(node)[1])
+        for name, root in state.roots.items()
+        for node in root.iter()
+        if node.tag in tags
+    )
+
+
+def add_physical_comment_regions_bytes(
+    data: bytes,
+    regions: tuple[tuple[PhysicalCommentSpan, ...], ...],
+    text: str,
+    author: CommentAuthor,
+    *,
+    document_sha256: str | None = None,
+) -> CommentMutationResult:
+    """Create one native comment per story, adopting no partial region set."""
+    from .docx_comment_threads import REGION_NS
+    from .docx_ns import MC_NS
+
+    state = _read_geometry_state(data)
+    digest = sha256(data).hexdigest() if document_sha256 is None else document_sha256
+    if not regions:
+        raise CommentMutationError("physical comment regions must not be empty")
+    stories: set[str] = set()
+    for region in regions:
+        _validate_target(state, PhysicalCommentRange(digest, region))
+        story = state.paragraphs[region[0].locator].geometry.story_id
+        if story in stories:
+            raise CommentMutationError("physical comment region set repeats a story")
+        stories.add(story)
+    candidate = data
+    created: list[str] = []
+    for region in regions:
+        result = add_physical_comment_bytes(
+            candidate, PhysicalCommentRange(sha256(candidate).hexdigest(), region), text, author
+        )
+        candidate = result.data
+        created.extend(result.receipt.created_ids)
+    identity = uuid4().hex
+    entries = read_package_entries(candidate)
+    updated = []
+    for entry in entries:
+        if not entry.name.startswith("word/") or not entry.name.endswith(".xml"):
+            updated.append(entry)
+            continue
+        root = parse_package_xml(entry.data, part_name=entry.name)
+        selected = [node for node in root.iter(qn("w:comment")) if node.get(qn("w:id")) in created]
+        if not selected:
+            updated.append(entry)
+            continue
+        namespaces = dict(root.nsmap)
+        prefix = "dx"
+        while prefix in namespaces and namespaces[prefix] != REGION_NS:
+            prefix += "x"
+        namespaces[prefix] = REGION_NS
+        namespaces.setdefault("mc", MC_NS)
+        replacement = etree.Element(root.tag, nsmap=namespaces)
+        replacement.attrib.update(root.attrib)
+        replacement.text, replacement.tail = root.text, root.tail
+        replacement.extend(root)
+        ignored = replacement.get(f"{{{MC_NS}}}Ignorable", "").split()
+        if prefix not in ignored:
+            ignored.append(prefix)
+        replacement.set(f"{{{MC_NS}}}Ignorable", " ".join(ignored))
+        for comment in selected:
+            comment.set(f"{{{REGION_NS}}}regionSet", identity)
+            comment.set(f"{{{REGION_NS}}}regionSetSize", str(len(regions)))
+        updated.append(replace(entry, data=_xml_bytes(replacement)))
+    payload = _package_bytes(tuple(updated))
+    after = _read_geometry_state(payload)
+    if after.projection.coverage is not ReviewCoverage.COMPLETE:
+        raise CommentMutationError("native comment region-set postflight is incomplete")
+    comments = tuple(index_stories(PyDocxDocument(BytesIO(payload))).comments)
+    members = [comment for comment in comments if comment.comment_id in created]
+    if len(members) != len(regions) or any(
+        comment.region_set_id != identity
+        or comment.region_set_size != len(regions)
+        or comment.text != text
+        for comment in members
+    ):
+        raise CommentMutationError("native comment region-set metadata was not confirmed")
+    before_parts = {entry.name: entry.data for entry in state.entries}
+    affected = tuple(
+        sorted(entry.name for entry in updated if before_parts.get(entry.name) != entry.data)
+    )
+    return CommentMutationResult(
+        payload,
+        OperationReceipt(
+            operation="add_physical_comment_regions",
+            status=OperationStatus.APPLIED,
+            affected_parts=affected,
+            created_ids=tuple(created),
+            before_sha256=sha256(data).hexdigest(),
+            after_sha256=sha256(payload).hexdigest(),
+        ),
+        comments,
     )
 
 
@@ -315,6 +423,9 @@ def _insert_boundary(paragraph: Any, offset: int, nodes: tuple[Any, ...]) -> Non
                 index += 1
             return
         if cursor < offset < cursor + width:
+            if child.tag in {qn("w:ins"), qn("w:del"), qn("w:hyperlink")}:
+                _insert_boundary(child, offset - cursor, nodes)
+                return
             if child.tag != qn("w:r"):
                 raise CommentMutationError("physical comment endpoint lies inside opaque content")
             left, right = _split_run(child, offset - cursor)

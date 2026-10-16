@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from io import BytesIO
 from typing import Any
 from xml.etree import ElementTree
@@ -14,7 +15,6 @@ from docx.text.paragraph import Paragraph
 
 from .docx_models import AddressableComment
 from .docx_ns import (
-    _COMMENTS_EXTENDED_PART,
     _CONTENT_TYPES_PART,
     _DOCUMENT_RELS_PART,
     _THREAD_PARTS,
@@ -22,8 +22,6 @@ from .docx_ns import (
     _UNSUPPORTED_MOVE_TAGS,
     CT_NS,
     REL_NS,
-    W14_NS,
-    W15_NS,
     W_T,
 )
 from .docx_units import _paragraph_units
@@ -185,37 +183,20 @@ def _comment_date_attr(element: Any) -> str | None:
 
 
 def _comment_parent_ids(comments_part: Any, package: Any) -> dict[str, str]:
-    parts = {_package_part_name(part.partname): part for part in package.iter_parts()}
-    extended = parts.get(_COMMENTS_EXTENDED_PART)
-    if comments_part is None or extended is None:
-        return {}
-    para_to_comment: dict[str, str] = {}
-    for comment in comments_part.element.findall(qn("w:comment")):
-        comment_id = _w_get(comment, "id")
-        if comment_id is None:
-            continue
-        for paragraph in comment.iter(qn("w:p")):
-            para_id = paragraph.get(f"{{{W14_NS}}}paraId")
-            if para_id:
-                para_to_comment[para_id] = comment_id
-    if not para_to_comment:
-        return {}
-    try:
-        root = ElementTree.fromstring(extended.blob)
-    except ElementTree.ParseError:
-        return {}
-    parents: dict[str, str] = {}
-    for element in root.iter():
-        if element.tag != _clark(W15_NS, "commentEx"):
-            continue
-        para_id = element.get(_clark(W15_NS, "paraId"))
-        parent_para = element.get(_clark(W15_NS, "paraIdParent"))
-        if not para_id or not parent_para:
-            continue
-        comment_id = para_to_comment.get(para_id)
-        parent_id = para_to_comment.get(parent_para)
-        if comment_id and parent_id and comment_id != parent_id:
-            parents[comment_id] = parent_id
+    from .docx_comment_threads import comment_parent_graph
+    from .docx_package import parse_package_xml
+
+    roots = {
+        _package_part_name(part.partname): parse_package_xml(
+            part.blob, part_name=_package_part_name(part.partname)
+        )
+        for part in package.iter_parts()
+        if _package_part_name(part.partname).startswith("word/")
+        and _package_part_name(part.partname).endswith(".xml")
+    }
+    parents, diagnostics = comment_parent_graph(roots)
+    if diagnostics:
+        raise ValueError("; ".join(item.message for item in diagnostics))
     return parents
 
 
@@ -276,6 +257,8 @@ def _collect_comments(
 ) -> list[AddressableComment]:
     if comments_part is None:
         return []
+    from .docx_comment_threads import region_metadata
+
     anchors = _comment_anchors(paragraphs_by_container)
     parents = _comment_parent_ids(comments_part, package)
     comments: list[AddressableComment] = []
@@ -296,6 +279,7 @@ def _collect_comments(
         if not texts:
             continue
         locator, anchor_text = anchors.get(comment_id, (None, ""))
+        region_set_id, region_set_size = region_metadata(comment_elm)
         comments.append(
             AddressableComment(
                 comment_id=comment_id,
@@ -307,6 +291,18 @@ def _collect_comments(
                 anchor_text=anchor_text,
                 parent_id=parents.get(comment_id),
                 date=_comment_date_attr(comment_elm),
+                region_set_id=region_set_id,
+                region_set_size=region_set_size,
+                anchor_evidence="native_markers" if locator else None,
             )
         )
+    by_id = {comment.comment_id: comment for comment in comments}
+    for index, comment in enumerate(comments):
+        if comment.locator is not None or comment.parent_id is None:
+            continue
+        cursor = comment.parent_id
+        while cursor in by_id and by_id[cursor].parent_id is not None:
+            cursor = by_id[cursor].parent_id
+        if cursor in anchors:
+            comments[index] = replace(comment, anchor_evidence=f"parent_graph:{cursor}")
     return comments

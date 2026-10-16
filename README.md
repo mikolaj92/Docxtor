@@ -403,6 +403,50 @@ empty document from incomplete coverage. Unsupported structural revisions fail
 closed. `apply_review_batch()` returns no intermediate bytes if any command
 fails.
 
+#### Source-bound comment regions
+
+`DocxDocument.review_geometry()` inventories body paragraphs, tables, headers,
+footers, user notes, and paragraph-bearing text boxes. Comment bodies remain
+separate context stories. Separator notes are excluded. The geometry carries
+an exact source SHA-256 and ordered spans for each physical story.
+
+`physical_span_for_semantic_range()` maps effective text through typed
+`PhysicalTextOrigin` records. Inserted text participates in the effective view.
+Deleted text keeps its raw source coordinates. A mapped range can include
+intervening deleted text without removing or accepting that revision.
+
+`DocxDocument.add_physical_comment_regions(regions, text, author,
+document_sha256=source_sha256)` creates one native comment for each story region.
+Each region is a tuple of `PhysicalCommentSpan` values. The operation validates
+all regions before mutation and adopts only the complete candidate. Call
+`publish()` to atomically write the resulting handle.
+
+The comments store their shared `regionSet` identity and `regionSetSize` in a
+Docxtor namespace inside DOCX. `AddressableComment.region_set_id` and
+`region_set_size` expose these values after reload. Missing members and
+conflicting sizes make review inventory incomplete. No sidecar file is used.
+
+A native reply without markers inherits its parent's proved physical scope.
+The parent graph rejects unresolved identities, cycles, and conflicting scopes.
+Partial markers cannot inherit a scope. `PhysicalCommentAnchor.anchor_evidence`
+reports the proved explicit or inherited anchor. The older
+`AddressableComment.anchor_evidence` reports marker or parent-graph provenance
+without changing its legacy locator and anchor-text fields.
+
+`remove_comments()` expands a selection to its complete native region sets and
+all descendant replies. It removes their range markers and thread identities in
+one transaction. `OperationReceipt.removed_ids` lists the complete selection.
+Unselected comment bodies, thread records, and native revisions remain intact.
+
+`DocxDocument.map_review_spans(source_sha256, spans)` follows native mutation
+receipts on the same open handle. It returns current raw envelopes for captured
+source spans. A tracked deletion retains its raw range. A tracked insertion
+expands the envelope at its proved source position. `PhysicalTextInsertion`
+records carry the actual physical insertion offset, including insertions next
+to existing deleted text. Unknown mutations and broken snapshot chains raise.
+`apply_review_batch()` returns its typed receipts and records the same mapping.
+This history is transient execution state and is not a second document format.
+
 #### Selective disposition of existing revisions
 
 `inspect_revision_dispositions(bytes)` inventories every XML OPC member,

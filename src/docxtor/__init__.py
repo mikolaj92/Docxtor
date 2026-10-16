@@ -149,15 +149,20 @@ from .docx_review_geometry import (
     PhysicalCommentSpan,
     PhysicalParagraphGeometry,
     PhysicalReviewGeometry,
+    PhysicalTextOrigin,
     physical_span_for_semantic_range,
     project_docx_review_geometry,
 )
-from .docx_review_geometry_comments import add_physical_comment_bytes
+from .docx_review_geometry_comments import (
+    add_physical_comment_bytes,
+    add_physical_comment_regions_bytes,
+)
 from .docx_review_inventory import inventory_review_markup
 from .docx_review_models import (
     CommentRevisionAssociation,
     OperationReceipt,
     OperationStatus,
+    PhysicalTextInsertion,
     ReviewBatchReceipt,
     ReviewCoverage,
     ReviewDiagnostic,
@@ -212,10 +217,12 @@ __all__ = [
     "PhysicalCommentRange",
     "PhysicalCommentSpan",
     "PhysicalParagraphGeometry",
+    "PhysicalTextOrigin",
     "PhysicalReviewGeometry",
     "physical_span_for_semantic_range",
     "project_docx_review_geometry",
     "add_physical_comment_bytes",
+    "add_physical_comment_regions_bytes",
     "remove_all_comments_bytes",
     "RevisionDecision",
     "RevisionDisposition",
@@ -307,6 +314,7 @@ __all__ = [
     "CommentRevisionAssociation",
     "OperationReceipt",
     "OperationStatus",
+    "PhysicalTextInsertion",
     "ReviewBatchReceipt",
     "ReviewCoverage",
     "ReviewDiagnostic",
