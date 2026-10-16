@@ -8,7 +8,7 @@ round-trips across plain text files, DOCX files, and text-layer PDFs.
 
 ## Status
 
-Early library. The public API exports 213 names. The public API is not stable yet.
+Early library. The public API exports 217 names. The public API is not stable yet.
 
 ## Public API
 
@@ -20,7 +20,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | Document types and loading | `DOCX_MIME`, `MD_MIME`, `PDF_MIME`, `TXT_MIME`, `DocumentBytes`, `DocumentError`, `DocumentKind`, `DetectedDocumentType`, `detect_document_type`, `document_to_bytes`, `load_document`, `PdfDocument`, `PdfExtractionMode`, `PlainTextDocument` |
 | DOCX text and inline editing | `AddressableComment`, `AddressableSpan`, `DocxDocument`, `InlineSegment`, `InlineSegmentKind`, `SegmentReplacement`, `SpanRole`, `TextSegment`, `UnsupportedRevisionError`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline` |
 | Paragraph and run locators | `ParagraphLocator`, `ParagraphResolution`, `RunLocator`, `RunResolution` |
-| Comment mutations | `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange` |
+| Comment mutations | `CommentScopeBookmark`, `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange` |
 | Document comparison | `compare_docx_documents`, `BlockPair`, `CommentAnchor`, `CommentChange`, `CommentChangeStatus`, `ComparisonCoverage`, `ComparisonDiagnostic`, `DiagnosticSeverity`, `DocumentBlock`, `DocumentComment`, `DocumentSpan`, `DocumentView`, `DocxDocumentComparison`, `FormattingChange`, `FormattingSpan`, `RevisionEvent`, `RevisionEventStatus`, `RevisionReference`, `RevisionResolutionEvidence`, `TextAnchor`, `TextChange`, `TextChangeKind` |
 | Cross-reference diagnostics | `DOCX_CROSS_REFERENCE_PROFILE_ID`, `CrossReferenceDiagnostic`, `CrossReferenceReport`, `CrossReferenceSeverity`, `diagnose_docx_cross_references` |
 | Mechanical facts and structural comparison | `ChangeKind`, `ContainerCoordinate`, `DocxComparison`, `DocxFactsSnapshot`, `DocxStructureSnapshot`, `FactChange`, `FactDiagnostic`, `FactsCoverage`, `NamedFact`, `PageBreakFact`, `PageLayoutFacts`, `ParagraphFact`, `RelationshipFact`, `StoryFact`, `TransformPolicy`, `UnreadablePartFact`, `compare_docx`, `docx_facts` |
@@ -32,7 +32,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | Package comparison | `PackageChangeReport`, `PackagePartChange`, `PackagePartChangeKind`, `compare_docx_packages` |
 | Core keyword properties | `read_core_keywords`, `remove_core_keyword_values`, `set_core_keywords` |
 | Publication receipts | `PublishError`, `PublishReceipt` |
-| Physical review geometry | `PhysicalCommentAnchor`, `PhysicalCommentRange`, `PhysicalCommentSpan`, `PhysicalParagraphGeometry`, `PhysicalReviewGeometry`, `physical_span_for_semantic_range`, `project_docx_review_geometry`, `add_physical_comment_bytes` |
+| Physical review geometry | `PhysicalCommentAnchor`, `PhysicalCommentRange`, `PhysicalCommentSpan`, `PhysicalParagraphGeometry`, `PhysicalReviewGeometry`, `PhysicalTextOrigin`, `PhysicalTextInsertion`, `physical_span_for_semantic_range`, `project_docx_review_geometry`, `add_physical_comment_bytes`, `add_physical_comment_regions_bytes` |
 | Review markup inventory and batches | `inventory_review_markup`, `CommentRevisionAssociation`, `OperationReceipt`, `OperationStatus`, `ReviewBatchReceipt`, `ReviewCoverage`, `ReviewDiagnostic`, `ReviewMarkupInventory`, `ReviewCommand`, `ReviewTransactionError`, `apply_review_batch` |
 | Revision mutations | `RevisionAuthor`, `RevisionMutationError`, `RevisionMutationResult`, `RevisionPosition`, `RevisionRange` |
 | Selective revision disposition | `dispose_revisions_bytes`, `inspect_revision_dispositions`, `RevisionDecision`, `RevisionDisposition`, `RevisionDispositionCoverage`, `RevisionDispositionDiagnostic`, `RevisionDispositionInventory`, `RevisionDispositionReceipt`, `RevisionDispositionResult`, `RevisionDispositionTarget`, `RevisionSelectionError` |
@@ -70,7 +70,7 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git@v0.18.0
 ```
 
-Pin the current release tag `v0.18.0` (matching `pyproject.toml`). For the
+Pin the current release tag `v0.19.0` (matching `pyproject.toml`). For the
 feature history of earlier releases, see the git tags and `docs/releases/`.
 
 > Historical note only: tag `v0.4.1` still shipped distribution version
