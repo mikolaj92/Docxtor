@@ -133,6 +133,36 @@ class _State:
 
 
 def remove_all_comments_bytes(data: bytes) -> CommentMutationResult:
+    from .docx_comment_scopes import owned_scope_bookmarks, remove_scope_bookmark_markers
+    from .docx_review_geometry import project_docx_review_geometry
+    from .docx_review_models import ReviewCoverage
+
+    entries = read_package_entries(data)
+    roots = {
+        entry.name: parse_package_xml(entry.data, part_name=entry.name)
+        for entry in entries
+        if entry.name.startswith("word/") and entry.name.endswith(".xml")
+    }
+    scopes = owned_scope_bookmarks(roots)
+    if not scopes:
+        return _remove_native_comments_bytes(data)
+    geometry = project_docx_review_geometry(data)
+    if geometry.coverage is not ReviewCoverage.COMPLETE or geometry.scope_bookmarks != scopes:
+        raise CommentMutationError("logical scope bookmark cleanup has no complete ownership proof")
+    stripped, changed = remove_scope_bookmark_markers(data, scopes)
+    result = _remove_native_comments_bytes(stripped)
+    return replace(
+        result,
+        receipt=replace(
+            result.receipt,
+            before_sha256=sha256(data).hexdigest(),
+            affected_parts=tuple(sorted(set(result.receipt.affected_parts) | set(changed))),
+            removed_scope_bookmarks=scopes,
+        ),
+    )
+
+
+def _remove_native_comments_bytes(data: bytes) -> CommentMutationResult:
     """Remove all native Word comments without accepting or rejecting any revision.
 
     The complete package is checked before and after the in-memory operation.

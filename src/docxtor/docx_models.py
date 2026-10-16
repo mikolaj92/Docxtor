@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .common import DocumentError
@@ -129,6 +129,14 @@ class AddressableSpan:
 
 
 @dataclass(frozen=True)
+class CommentScopeBookmark:
+    part_name: str
+    bookmark_id: str
+    name: str
+    comment_id: str
+
+
+@dataclass(frozen=True)
 class AddressableComment:
     """Mechanical Word comment body with stable identity and thread metadata.
 
@@ -148,6 +156,10 @@ class AddressableComment:
     anchor_text: str = ""
     parent_id: str | None = None
     date: str | None = None
+    user_note_text: str | None = None
+    region_set_id: str | None = None
+    region_set_size: int | None = None
+    anchor_evidence: str | None = field(default=None, compare=False)
 
 
 @dataclass

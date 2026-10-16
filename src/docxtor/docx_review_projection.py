@@ -60,7 +60,7 @@ def project_docx_for_review(source: str | Path | bytes) -> DocxReviewProjection:
     paragraphs = []
     for paragraph in geometry.paragraphs:
         locator = paragraph.locator
-        if not locator or locator.startswith(("comment:", "footnote:", "endnote:")):
+        if not locator or locator.startswith("comment:"):
             continue
         paragraphs.append(
             ReviewParagraphProjection(

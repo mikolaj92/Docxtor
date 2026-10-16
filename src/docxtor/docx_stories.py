@@ -14,6 +14,7 @@ from .docx_alternate_content import (
     alternate_coverage_for,
     iter_alternate_aware_blocks,
     iter_alternate_aware_paragraphs,
+    select_alternate_branch,
 )
 from .docx_comments import (
     _capture_thread_parts,
@@ -22,7 +23,7 @@ from .docx_comments import (
     _existing_comments_part,
 )
 from .docx_models import AddressableComment, TextSegment
-from .docx_ns import W_P, W_SDT, W_SDT_CONTENT, W_TBL
+from .docx_ns import MC_NS, W_P, W_SDT, W_SDT_CONTENT, W_TBL
 from .docx_units import _paragraph_visible_text
 from .docx_xml import _is_text_box_container, _local_tag, _w_get
 
@@ -36,21 +37,21 @@ def _existing_note_part(doc: DocxDocumentType, reltype: str) -> tuple[Any, Any] 
 
 
 def _iter_text_box_hosts(root: Any) -> list[Any]:
-    """Return each text-bearing ``w:txbxContent`` (or VML/DrawingML wrapper).
-
-    Nested boxes keep document order. Empty decorative shapes (no descendant
-    ``w:t``) are skipped so they never occupy a ``txbx:N`` slot.
-    """
     hosts: list[Any] = []
     seen: set[int] = set()
 
     def has_text(element: Any) -> bool:
-        for node in element.iter():
-            if _local_tag(node.tag) in {"t", "delText"} and node.text and node.text.strip():
-                return True
-        return False
+        return any(node.tag == W_P for node in element.iter())
 
-    for element in root.iter():
+    def selected_nodes(element: Any):
+        if element.tag == f"{{{MC_NS}}}AlternateContent":
+            yield from selected_nodes(select_alternate_branch(element).selected)
+            return
+        yield element
+        for child in element:
+            yield from selected_nodes(child)
+
+    for element in selected_nodes(root):
         if not _is_text_box_container(element.tag):
             continue
         identity = id(element)
@@ -145,10 +146,15 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
     body_paragraph_index = 0
     paragraphs_by_index: dict[int, Paragraph] = {}
     paragraphs_by_container: dict[str, Paragraph] = {}
+    indexed_elements: set[Any] = set()
+    additional_boxes: list[tuple[Any, Any, str]] = []
 
     def add_paragraphs(paragraphs: list[Paragraph], prefix: str) -> None:
         nonlocal body_paragraph_index, global_paragraph_index
         for local_idx, para in enumerate(paragraphs):
+            if para._p in indexed_elements:
+                continue
+            indexed_elements.add(para._p)
             paragraphs_by_index[global_paragraph_index] = para
 
             # container_id: body uses global index for stability (matches Dike anchors);
@@ -170,13 +176,7 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
                     TextSegment(
                         id=seg_id,
                         text=text,
-                        part=(
-                            "word/comments.xml"
-                            if prefix.startswith("comment:")
-                            else "word/document.xml"
-                            if prefix.startswith(("body", "table", "txbx"))
-                            else f"word/{prefix.split(':')[0]}.xml"
-                        ),
+                        part=str(para.part.partname).lstrip("/"),
                         index=local_idx,
                         container_id=cid,
                         paragraph_index=global_paragraph_index,
@@ -308,6 +308,7 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
             if not story._has_definition:
                 continue
             definition = story._definition
+            additional_boxes.append((definition.element, story, f"{story_name}:{si}"))
             add_paragraphs(
                 _paragraphs_from_container(definition.element, story, skip_text_boxes=True),
                 f"{story_name}:{si}",
@@ -322,6 +323,13 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
             f"txbx:{box_idx}",
         )
 
+    for root, owner, identity in additional_boxes:
+        for box_idx, host in enumerate(_iter_text_box_hosts(root)):
+            add_paragraphs(
+                _paragraphs_from_container(host, owner, skip_text_boxes=True),
+                f"txbx:{identity}:{box_idx}",
+            )
+
     comments_part = _existing_comments_part(doc)
     if comments_part is not None:
         for comment_elm in comments_part.element.findall(qn("w:comment")):
@@ -329,9 +337,14 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
             if comment_id is None:
                 continue
             add_comment_paragraphs(
-                _paragraphs_from_container(comment_elm, comments_part),
+                _paragraphs_from_container(comment_elm, comments_part, skip_text_boxes=True),
                 comment_id,
             )
+            for box_idx, host in enumerate(_iter_text_box_hosts(comment_elm)):
+                add_comment_paragraphs(
+                    _paragraphs_from_container(host, comments_part, skip_text_boxes=True),
+                    f"{comment_id}:txbx:{box_idx}",
+                )
 
     note_parts: dict[str, tuple[Any, Any]] = {}
     for story, reltype, root_tag, note_tag, part_name in (
@@ -351,12 +364,36 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
             if note_id is None or note_type in {"separator", "continuationSeparator"}:
                 continue
             add_note_paragraphs(
-                _paragraphs_from_container(note_elm, note_part),
+                _paragraphs_from_container(note_elm, note_part, skip_text_boxes=True),
                 story,
                 note_id,
                 part_name,
             )
+            for box_idx, host in enumerate(_iter_text_box_hosts(note_elm)):
+                add_paragraphs(
+                    _paragraphs_from_container(host, note_part, skip_text_boxes=True),
+                    f"txbx:{story}:{note_id}:{box_idx}",
+                )
 
+    coverage_roots = {
+        doc.element,
+        *(root for root, _, _ in additional_boxes),
+        *(root for _, root in note_parts.values()),
+    }
+    if comments_part is not None:
+        coverage_roots.add(comments_part.element)
+    coverages = [alternate_coverage_for(root) for root in coverage_roots]
+    coverage = AlternateContentCoverage(
+        regions=sum(item.regions for item in coverages),
+        choice_selected=sum(item.choice_selected for item in coverages),
+        fallback_selected=sum(item.fallback_selected for item in coverages),
+        unknown_requirements=tuple(
+            sorted({value for item in coverages for value in item.unknown_requirements})
+        ),
+        unsupported_requirements=tuple(
+            sorted({value for item in coverages for value in item.unsupported_requirements})
+        ),
+    )
     comments = _collect_comments(comments_part, paragraphs_by_container, doc.part.package)
     thread_parts = _capture_thread_parts(doc.part.package)
     _ensure_thread_parts(doc.part.package, thread_parts)
@@ -368,5 +405,5 @@ def index_stories(doc: DocxDocumentType) -> IndexedStories:
         comments=comments,
         thread_parts=thread_parts,
         note_parts=note_parts,
-        alternate_content_coverage=alternate_coverage_for(doc.element),
+        alternate_content_coverage=coverage,
     )

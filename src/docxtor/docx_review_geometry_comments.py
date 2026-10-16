@@ -9,6 +9,7 @@ from hashlib import sha256
 from io import BytesIO
 from posixpath import basename, dirname, join, normpath
 from typing import Any
+from uuid import uuid4
 from zipfile import ZipFile
 
 from docx import Document as PyDocxDocument
@@ -21,6 +22,7 @@ from .docx_ns import _TEXT_NODE_TAGS, CT_NS, REL_NS
 from .docx_package import PackageEntry, parse_package_xml, read_package_entries
 from .docx_review_geometry import (
     PhysicalCommentRange,
+    PhysicalCommentSpan,
     _GeometryState,
     _marker_coordinates,
     _read_geometry_state,
@@ -38,6 +40,8 @@ def add_physical_comment_bytes(
     target: PhysicalCommentRange,
     text: str,
     author: CommentAuthor,
+    *,
+    _force_scope: bool = False,
 ) -> CommentMutationResult:
     """Add one exact point or contiguous range comment without rewriting other parts.
 
@@ -75,7 +79,52 @@ def add_physical_comment_bytes(
     comment_id = str(candidate)
     _append_comment(comments_root, comment_id, text, author)
     changed[comments_name] = comments_root
-    first, last = target.spans[0], target.spans[-1]
+    from .docx_comment_scopes import (
+        append_scope_link,
+        display_target,
+        new_bookmark_id,
+        new_scope_name,
+    )
+
+    try:
+        display_spans, scope_kind = display_target(state, target.spans)
+    except ValueError as exc:
+        raise CommentMutationError(str(exc)) from exc
+    if _force_scope and scope_kind is None:
+        scope_kind = "document"
+    rendered_text = text
+    if scope_kind is not None:
+        scope_name = new_scope_name(state.roots)
+        bookmark_id = new_bookmark_id(state.roots)
+        comment = next(
+            node
+            for node in comments_root.iter(qn("w:comment"))
+            if node.get(qn("w:id")) == comment_id
+        )
+        append_scope_link(comment, scope_name, scope_kind)
+        rendered_text += "\n" + "".join(
+            node.text or "" for node in list(comment)[-1].iter(qn("w:t"))
+        )
+        logical_first, logical_last = target.spans[0], target.spans[-1]
+        logical_start = state.paragraphs[logical_first.locator]
+        logical_end = state.paragraphs[logical_last.locator]
+        bookmark_start = etree.Element(
+            qn("w:bookmarkStart"), {qn("w:id"): bookmark_id, qn("w:name"): scope_name}
+        )
+        bookmark_end = etree.Element(qn("w:bookmarkEnd"), {qn("w:id"): bookmark_id})
+        if (
+            logical_first.locator == logical_last.locator
+            and logical_first.start_offset == logical_last.end_offset
+        ):
+            _insert_boundary(
+                logical_start.element, logical_first.start_offset, (bookmark_start, bookmark_end)
+            )
+        else:
+            _insert_boundary(logical_end.element, logical_last.end_offset, (bookmark_end,))
+            _insert_boundary(logical_start.element, logical_first.start_offset, (bookmark_start,))
+        changed[logical_start.geometry.part_name] = state.roots[logical_start.geometry.part_name]
+        changed[logical_end.geometry.part_name] = state.roots[logical_end.geometry.part_name]
+    first, last = display_spans[0], display_spans[-1]
     start = state.paragraphs[first.locator]
     end = state.paragraphs[last.locator]
     start_marker = _marker("commentRangeStart", comment_id)
@@ -122,6 +171,8 @@ def add_physical_comment_bytes(
         )
         if kept is None or replace(kept, document_sha256=old.document_sha256) != old:
             raise CommentMutationError("existing physical comment anchors were not preserved")
+    if _revision_identity(state) != _revision_identity(after):
+        raise CommentMutationError("existing native revisions were not preserved")
     for old in state.projection.paragraphs:
         kept = after.paragraphs.get(old.locator)
         if kept is None or kept.geometry.text != old.text or kept.geometry.story_id != old.story_id:
@@ -137,7 +188,8 @@ def add_physical_comment_bytes(
     new_body = next((comment for comment in comments if comment.comment_id == comment_id), None)
     if (
         new_body is None
-        or new_body.text != text
+        or new_body.text != rendered_text
+        or (scope_kind is not None and new_body.user_note_text != text)
         or new_body.author != author.author
         or (author.initials is not None and new_body.initials != author.initials)
         or (author.date is not None and new_body.date != author.date)
@@ -162,6 +214,140 @@ def add_physical_comment_bytes(
             after_sha256=sha256(payload).hexdigest(),
         ),
         comments=comments,
+    )
+
+
+def _revision_identity(state: _GeometryState) -> tuple[tuple[str, str, tuple, str], ...]:
+    tags = {
+        qn(f"w:{name}") for name in ("ins", "del", "moveFrom", "moveTo", "pPrChange", "rPrChange")
+    }
+    return tuple(
+        (name, node.tag, tuple(sorted(node.attrib.items())), _marker_coordinates(node)[1])
+        for name, root in state.roots.items()
+        for node in root.iter()
+        if node.tag in tags
+    )
+
+
+def add_physical_comment_regions_bytes(
+    data: bytes,
+    regions: tuple[tuple[PhysicalCommentSpan, ...], ...],
+    text: str,
+    author: CommentAuthor,
+    *,
+    document_sha256: str | None = None,
+) -> CommentMutationResult:
+    """Create one native comment per story, adopting no partial region set."""
+    from .docx_comment_threads import REGION_NS
+    from .docx_ns import MC_NS
+
+    state = _read_geometry_state(data)
+    digest = sha256(data).hexdigest() if document_sha256 is None else document_sha256
+    if not regions:
+        raise CommentMutationError("physical comment regions must not be empty")
+    stories: set[str] = set()
+    for region in regions:
+        _validate_target(state, PhysicalCommentRange(digest, region))
+        story = state.paragraphs[region[0].locator].geometry.story_id
+        if story in stories:
+            raise CommentMutationError("physical comment region set repeats a story")
+        stories.add(story)
+    candidate = data
+    created: list[str] = []
+    for region in regions:
+        result = add_physical_comment_bytes(
+            candidate,
+            PhysicalCommentRange(sha256(candidate).hexdigest(), region),
+            text,
+            author,
+            _force_scope=len(regions) > 1,
+        )
+        candidate = result.data
+        created.extend(result.receipt.created_ids)
+    identity = uuid4().hex[:16]
+    entries = read_package_entries(candidate)
+    from .docx_comment_scopes import scope_link
+
+    rename = {}
+    for entry in entries:
+        if not entry.name.startswith("word/") or not entry.name.endswith(".xml"):
+            continue
+        root = parse_package_xml(entry.data, part_name=entry.name)
+        for comment in root.iter(qn("w:comment")):
+            if comment.get(qn("w:id")) not in created:
+                continue
+            link = scope_link(comment)
+            if link is not None:
+                index = created.index(comment.get(qn("w:id"))) + 1
+                rename[link.name] = f"_dxs_{identity}_{index}_{len(regions)}"
+    updated = []
+    for entry in entries:
+        if not entry.name.startswith("word/") or not entry.name.endswith(".xml"):
+            updated.append(entry)
+            continue
+        root = parse_package_xml(entry.data, part_name=entry.name)
+        selected = [node for node in root.iter(qn("w:comment")) if node.get(qn("w:id")) in created]
+        renamed = False
+        for node in root.iter():
+            attribute = (
+                qn("w:name")
+                if node.tag == qn("w:bookmarkStart")
+                else qn("w:anchor")
+                if node.tag == qn("w:hyperlink")
+                else None
+            )
+            if attribute is not None and node.get(attribute) in rename:
+                node.set(attribute, rename[node.get(attribute)])
+                renamed = True
+        if not selected:
+            updated.append(replace(entry, data=_xml_bytes(root)) if renamed else entry)
+            continue
+        namespaces = dict(root.nsmap)
+        prefix = "dx"
+        while prefix in namespaces and namespaces[prefix] != REGION_NS:
+            prefix += "x"
+        namespaces[prefix] = REGION_NS
+        namespaces.setdefault("mc", MC_NS)
+        replacement = etree.Element(root.tag, nsmap=namespaces)
+        replacement.attrib.update(root.attrib)
+        replacement.text, replacement.tail = root.text, root.tail
+        replacement.extend(root)
+        ignored = replacement.get(f"{{{MC_NS}}}Ignorable", "").split()
+        if prefix not in ignored:
+            ignored.append(prefix)
+        replacement.set(f"{{{MC_NS}}}Ignorable", " ".join(ignored))
+        for comment in selected:
+            comment.set(f"{{{REGION_NS}}}regionSet", identity)
+            comment.set(f"{{{REGION_NS}}}regionSetSize", str(len(regions)))
+        updated.append(replace(entry, data=_xml_bytes(replacement)))
+    payload = _package_bytes(tuple(updated))
+    after = _read_geometry_state(payload)
+    if after.projection.coverage is not ReviewCoverage.COMPLETE:
+        raise CommentMutationError("native comment region-set postflight is incomplete")
+    comments = tuple(index_stories(PyDocxDocument(BytesIO(payload))).comments)
+    members = [comment for comment in comments if comment.comment_id in created]
+    if len(members) != len(regions) or any(
+        comment.region_set_id != identity
+        or comment.region_set_size != len(regions)
+        or (comment.user_note_text if comment.user_note_text is not None else comment.text) != text
+        for comment in members
+    ):
+        raise CommentMutationError("native comment region-set metadata was not confirmed")
+    before_parts = {entry.name: entry.data for entry in state.entries}
+    affected = tuple(
+        sorted(entry.name for entry in updated if before_parts.get(entry.name) != entry.data)
+    )
+    return CommentMutationResult(
+        payload,
+        OperationReceipt(
+            operation="add_physical_comment_regions",
+            status=OperationStatus.APPLIED,
+            affected_parts=affected,
+            created_ids=tuple(created),
+            before_sha256=sha256(data).hexdigest(),
+            after_sha256=sha256(payload).hexdigest(),
+        ),
+        comments,
     )
 
 
@@ -315,6 +501,9 @@ def _insert_boundary(paragraph: Any, offset: int, nodes: tuple[Any, ...]) -> Non
                 index += 1
             return
         if cursor < offset < cursor + width:
+            if child.tag in {qn("w:ins"), qn("w:del"), qn("w:hyperlink")}:
+                _insert_boundary(child, offset - cursor, nodes)
+                return
             if child.tag != qn("w:r"):
                 raise CommentMutationError("physical comment endpoint lies inside opaque content")
             left, right = _split_run(child, offset - cursor)
