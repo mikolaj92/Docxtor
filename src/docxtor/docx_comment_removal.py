@@ -83,6 +83,9 @@ def remove_comment_sets(data: bytes, comment_ids: set[str] | None) -> CommentMut
                 identity = node.get(f"{{{_CID}}}durableId")
                 if identity is not None:
                     durable_ids.add(identity)
+    removed_scopes = tuple(
+        scope for scope in state.projection.scope_bookmarks if scope.comment_id in selected
+    )
     changed: dict[str, Any] = {}
     markers = {
         qn(f"w:{name}") for name in ("commentRangeStart", "commentRangeEnd", "commentReference")
@@ -103,6 +106,10 @@ def remove_comment_sets(data: bytes, comment_ids: set[str] | None) -> CommentMut
             remove |= (
                 node.tag == f"{{{_CEX}}}commentExtensible"
                 and node.get(f"{{{_CEX}}}durableId") in durable_ids
+            )
+            remove |= node.tag in {qn("w:bookmarkStart"), qn("w:bookmarkEnd")} and any(
+                scope.part_name == name and scope.bookmark_id == node.get(qn("w:id"))
+                for scope in removed_scopes
             )
             if remove and (parent := node.getparent()) is not None:
                 parent.remove(node)
@@ -133,6 +140,7 @@ def remove_comment_sets(data: bytes, comment_ids: set[str] | None) -> CommentMut
             status=OperationStatus.APPLIED,
             affected_parts=tuple(sorted(changed)),
             removed_ids=tuple(sorted(selected)),
+            removed_scope_bookmarks=removed_scopes,
             before_sha256=sha256(data).hexdigest(),
             after_sha256=sha256(payload).hexdigest(),
         ),

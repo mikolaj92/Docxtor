@@ -13,6 +13,7 @@ from .detection import DetectedDocumentType, detect_document_type
 from .docx import (
     AddressableComment,
     AddressableSpan,
+    CommentScopeBookmark,
     DocxDocument,
     InlineSegment,
     InlineSegmentKind,
@@ -331,6 +332,7 @@ __all__ = [
     "DocumentKind",
     "DetectedDocumentType",
     "AddressableComment",
+    "CommentScopeBookmark",
     "AddressableSpan",
     "DocumentSurface",
     "DocxDocument",

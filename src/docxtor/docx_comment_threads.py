@@ -84,12 +84,18 @@ def comment_parent_graph(
 
 
 def region_metadata(comment: Any) -> tuple[str | None, int | None]:
+    from .docx_comment_scopes import _SCOPE_NAME, scope_link
+
+    link = scope_link(comment)
+    native = _SCOPE_NAME.fullmatch(link.name) if link is not None else None
     identity = comment.get(f"{{{REGION_NS}}}regionSet")
     size = comment.get(f"{{{REGION_NS}}}regionSetSize")
     if identity is None and size is None:
-        return None, None
+        return (native[1], int(native[3])) if native is not None else (None, None)
     if not identity or size is None or not size.isdecimal() or int(size) < 1:
         raise ValueError("invalid native comment region-set metadata")
+    if native is not None and (identity != native[1] or int(size) != int(native[3])):
+        raise ValueError("native scope group conflicts with comment group metadata")
     return identity, int(size)
 
 

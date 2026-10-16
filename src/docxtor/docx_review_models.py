@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-from .docx_models import AddressableComment
+from .docx_models import AddressableComment, CommentScopeBookmark
 from .docx_revisions import Revision
 
 
@@ -75,6 +75,7 @@ class OperationReceipt:
     diagnostics: tuple[ReviewDiagnostic, ...] = ()
     text_insertions: tuple[PhysicalTextInsertion, ...] = ()
     removed_ids: tuple[str, ...] = ()
+    removed_scope_bookmarks: tuple[CommentScopeBookmark, ...] = ()
 
 
 @dataclass(frozen=True)

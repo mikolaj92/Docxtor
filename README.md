@@ -426,6 +426,30 @@ Docxtor namespace inside DOCX. `AddressableComment.region_set_id` and
 `region_set_size` expose these values after reload. Missing members and
 conflicting sizes make review inventory incomplete. No sidecar file is used.
 
+Word ignores `commentReference` inside headers, footers, text boxes, footnotes,
+and endnotes. This behavior is documented in
+[MS-OI29500 §17.13.4.5](https://learn.microsoft.com/en-nz/openspecs/office_standards/ms-oi29500/84a35ef3-9c12-4b59-ab4c-4a88f520d06c).
+New comments on these stories use a visible native body display anchor and a
+native hyperlink to a hidden bookmark at the exact logical target. Notes use
+their body reference. Text boxes use their body host. Headers and footers use
+their section reference. No body text or paragraph identity is invented.
+
+`PhysicalCommentAnchor.spans` exposes the logical target. `display_spans` exposes
+the native body display range. `display_visible` distinguishes a body display
+anchor from incoming non-body native comments, which remain unchanged.
+`PhysicalReviewGeometry.scope_bookmarks` exposes validated `CommentScopeBookmark`
+ownership. Missing links, duplicate identities, incomplete groups, and targets
+that cross stories fail closed. Multi-story groups encode their identity and
+member count in native bookmark names, including their body member.
+
+`AddressableComment.text` contains the actual Word comment text, including its
+scope hyperlink label. `user_note_text` contains the remark without that label
+only when the provider has validated the native bridge. Updating one member
+updates the logical region set and retains each native scope link. Cleanup
+removes only proved owned bookmarks and reports them in
+`OperationReceipt.removed_scope_bookmarks`. Existing user bookmarks stay intact.
+These structural guarantees do not claim a completed live Word rendering check.
+
 A native reply without markers inherits its parent's proved physical scope.
 The parent graph rejects unresolved identities, cycles, and conflicting scopes.
 Partial markers cannot inherit a scope. `PhysicalCommentAnchor.anchor_evidence`

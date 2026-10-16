@@ -152,9 +152,7 @@ class DocxHandleOperations:
         author: CommentAuthor,
     ) -> CommentMutationResult:
         source = self._current_review_bytes()
-        result = self._preserve_mutation_result(
-            source, add_comment_bytes(source, target, text, author)
-        )
+        result = add_comment_bytes(source, target, text, author)
         self._adopt_review_mutation(source, result.data, result.receipt)
         return result
 

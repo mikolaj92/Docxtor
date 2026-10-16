@@ -119,6 +119,11 @@ def insert_revision(
             len(_marker_coordinates(sibling)[1]) for sibling in list(parent)[: parent.index(child)]
         )
         child = parent
+    from .docx_comment_scopes import expand_scope_bookmarks_for_insertion
+
+    expand_scope_bookmarks_for_insertion(
+        data, paragraph._p, wrapper, position.locator, actual_offset
+    )
     rendered = _aligned_visible_text(paragraph, position.locator)
     if rendered != visible[:actual_offset] + text + visible[actual_offset:]:
         raise RevisionMutationError("inserted revision has no exact raw source transformation")

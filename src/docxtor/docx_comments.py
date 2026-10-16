@@ -257,6 +257,7 @@ def _collect_comments(
 ) -> list[AddressableComment]:
     if comments_part is None:
         return []
+    from .docx_comment_scopes import scope_link
     from .docx_comment_threads import region_metadata
 
     anchors = _comment_anchors(paragraphs_by_container)
@@ -268,6 +269,8 @@ def _collect_comments(
             continue
         prefix = f"comment:{comment_id}"
         texts: list[str] = []
+        user_texts: list[str] = []
+        bridge = scope_link(comment_elm)
         first_container: str | None = None
         for local_idx, paragraph in enumerate(comment_elm.iter(qn("w:p"))):
             text = "".join(unit.text for unit in _paragraph_units(paragraph))
@@ -276,6 +279,8 @@ def _collect_comments(
             if first_container is None:
                 first_container = f"{prefix}:p:{local_idx}"
             texts.append(text)
+            if bridge is None or paragraph is not bridge.paragraph:
+                user_texts.append(text)
         if not texts:
             continue
         locator, anchor_text = anchors.get(comment_id, (None, ""))
@@ -285,6 +290,7 @@ def _collect_comments(
                 comment_id=comment_id,
                 container_id=first_container or f"{prefix}:p:0",
                 text="\n".join(texts),
+                user_note_text="\n".join(user_texts) if bridge is not None else None,
                 author=_w_get(comment_elm, "author") or "",
                 initials=_w_get(comment_elm, "initials"),
                 locator=locator or None,

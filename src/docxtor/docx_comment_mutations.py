@@ -7,7 +7,6 @@ from typing import Any
 
 from docx import Document as PyDocxDocument
 from docx.oxml.ns import qn
-from docx.text.run import Run
 
 from .common import DocumentError
 from .docx_comments import (
@@ -15,14 +14,7 @@ from .docx_comments import (
     _existing_comments_part,
     _restore_thread_sidecars,
 )
-from .docx_inline import (
-    _index_at_visible_offset,
-    _split_visible_offset,
-    _visible_text,
-    paragraph_to_inline_segments,
-    rebuild_paragraph_from_inline,
-)
-from .docx_models import AddressableComment, InlineSegment
+from .docx_models import AddressableComment
 from .docx_review_models import OperationReceipt, OperationStatus
 from .docx_stories import index_stories
 from .docx_units import _paragraph_visible_text, _replace_plain_range
@@ -60,66 +52,34 @@ def add_comment(
     text: str,
     author: CommentAuthor,
 ) -> CommentMutationResult:
-    """Add one comment to an exact range in the canonical story locator space."""
-    if not text:
-        raise CommentMutationError("comment text must not be empty")
-    doc = PyDocxDocument(BytesIO(data))
-    stories = index_stories(doc)
-    paragraph = stories.paragraphs_by_container.get(target.locator)
+    from .docx_review_geometry import (
+        PhysicalCommentRange,
+        PhysicalCommentSpan,
+        project_docx_review_geometry,
+    )
+    from .docx_review_geometry_comments import add_physical_comment_bytes
+
+    geometry = project_docx_review_geometry(data)
+    paragraph = next((item for item in geometry.paragraphs if item.locator == target.locator), None)
     if paragraph is None:
         raise CommentMutationError(f"unknown comment locator: {target.locator}")
-    segments = paragraph_to_inline_segments(paragraph)
-    visible = _visible_text(segments)
-    if not 0 <= target.start_offset < target.end_offset <= len(visible):
-        raise CommentMutationError(
-            f"invalid comment range {target.start_offset}:{target.end_offset} for {target.locator}"
-        )
-    selected = visible[target.start_offset : target.end_offset]
+    if not 0 <= target.start_offset < target.end_offset <= len(paragraph.text):
+        raise CommentMutationError(f"invalid comment range for {target.locator}")
+    selected = paragraph.text[target.start_offset : target.end_offset]
     if target.expected_text is not None and selected != target.expected_text:
         raise CommentMutationError(f"comment range text changed at {target.locator}")
-    segments = _split_visible_offset(
-        _split_visible_offset(segments, target.end_offset), target.start_offset
-    )
-    start_index = _index_at_visible_offset(segments, target.start_offset)
-    end_index = _index_at_visible_offset(segments, target.end_offset) - 1
-    if start_index < 0 or end_index < start_index:
-        raise CommentMutationError(f"comment range cannot be represented at {target.locator}")
-    chosen = segments[start_index : end_index + 1]
-    if any(segment.kind != "text" and not _is_comment_markup(segment) for segment in chosen):
-        raise CommentMutationError(f"comment range crosses opaque content at {target.locator}")
-    rebuild_paragraph_from_inline(paragraph, segments)
-    start_run, end_run = _comment_range_runs(paragraph, segments, start_index, end_index)
-    comment = doc.comments.add_comment(text=text, author=author.author, initials=author.initials)
-    if author.date is not None:
-        comment._comment_elm.set(qn("w:date"), author.date)
-    comment_id = int(comment.comment_id)
-    start_run.mark_comment_range(end_run, comment_id)
-    # Rebuild places existing comment markers verbatim; python-docx then serializes all parts.
-    payload = _serialize(doc)
-    after = index_stories(PyDocxDocument(BytesIO(payload)))
-    created = next((item for item in after.comments if item.comment_id == str(comment_id)), None)
-    if created is None or created.locator != target.locator or created.anchor_text != selected:
-        raise CommentMutationError("comment creation was not confirmed after round-trip")
-    before_comments = {
-        item.comment_id: (item.text, item.anchor_text, item.locator) for item in stories.comments
-    }
-    after_by_id = {item.comment_id: item for item in after.comments}
-    for comment_id_before, snapshot in before_comments.items():
-        kept = after_by_id.get(comment_id_before)
-        if kept is None or (kept.text, kept.anchor_text, kept.locator) != snapshot:
-            raise CommentMutationError("existing comments were not preserved")
-    return CommentMutationResult(
-        data=payload,
-        receipt=OperationReceipt(
-            operation="add_comment",
-            status=OperationStatus.APPLIED,
-            affected_parts=("word/comments.xml",),
-            created_ids=(str(comment_id),),
-            locator=target.locator,
-            before_sha256=sha256(data).hexdigest(),
-            after_sha256=sha256(payload).hexdigest(),
+    return add_physical_comment_bytes(
+        data,
+        PhysicalCommentRange(
+            geometry.document_sha256,
+            (
+                PhysicalCommentSpan(
+                    target.locator, target.start_offset, target.end_offset, selected
+                ),
+            ),
         ),
-        comments=tuple(after.comments),
+        text,
+        author,
     )
 
 
@@ -131,7 +91,54 @@ def update_comment(
     expected_text: str | None = None,
     author: CommentAuthor | None = None,
 ) -> CommentMutationResult:
-    """Rewrite one comment body by id, keeping anchors, identity, and thread parts."""
+    from .docx_review_inventory import inventory_review_markup
+    from .docx_review_models import ReviewCoverage
+
+    before = inventory_review_markup(data)
+    if before.coverage is not ReviewCoverage.COMPLETE:
+        raise CommentMutationError("comment update source coverage is incomplete")
+    selected = next((item for item in before.comments if item.comment_id == comment_id), None)
+    if selected is None:
+        raise CommentMutationError(f"unknown comment ID: {comment_id}")
+    ids = tuple(
+        item.comment_id
+        for item in before.comments
+        if item.comment_id == comment_id
+        or (selected.region_set_id is not None and item.region_set_id == selected.region_set_id)
+    )
+    candidate = data
+    affected: set[str] = set()
+    for identity in ids:
+        result = _update_comment(
+            candidate, identity, text, expected_text=expected_text, author=author
+        )
+        candidate = result.data
+        affected.update(result.receipt.affected_parts)
+    after = inventory_review_markup(candidate)
+    if after.coverage is not ReviewCoverage.COMPLETE:
+        raise CommentMutationError("comment update result coverage is incomplete")
+    return CommentMutationResult(
+        candidate,
+        OperationReceipt(
+            operation="update_comment",
+            status=OperationStatus.APPLIED,
+            affected_parts=tuple(sorted(affected)),
+            locator=selected.locator,
+            before_sha256=sha256(data).hexdigest(),
+            after_sha256=sha256(candidate).hexdigest(),
+        ),
+        after.comments,
+    )
+
+
+def _update_comment(
+    data: bytes,
+    comment_id: str,
+    text: str,
+    *,
+    expected_text: str | None = None,
+    author: CommentAuthor | None = None,
+) -> CommentMutationResult:
     if not text:
         raise CommentMutationError("comment text must not be empty")
     document = PyDocxDocument(BytesIO(data))
@@ -142,13 +149,30 @@ def update_comment(
     )
     if existing is None:
         raise CommentMutationError(f"unknown comment ID: {comment_id}")
-    if expected_text is not None and existing.text != expected_text:
+    canonical = existing.user_note_text if existing.user_note_text is not None else existing.text
+    if expected_text is not None and canonical != expected_text:
         raise CommentMutationError(f"comment text changed at {comment_id}")
+    from .docx_comment_scopes import scope_link
+
+    comments_part = _existing_comments_part(document)
+    if comments_part is None:
+        raise CommentMutationError("comment body part is unavailable for update")
+    comment_element = next(
+        node
+        for node in comments_part.element.iter(qn("w:comment"))
+        if node.get(qn("w:id")) == comment_id
+    )
+    bridge = scope_link(comment_element)
     extra = [
         segment
         for segment in stories.segments
         if (segment.container_id or "").startswith(f"comment:{comment_id}:")
         and segment.container_id != existing.container_id
+        and not (
+            bridge is not None
+            and segment.container_id in stories.paragraphs_by_container
+            and stories.paragraphs_by_container[segment.container_id]._p is bridge.paragraph
+        )
     ]
     if extra:
         raise CommentMutationError(f"comment {comment_id} spans multiple paragraphs")
@@ -169,7 +193,8 @@ def update_comment(
     updated = next((item for item in after.comments if item.comment_id == comment_id), None)
     if (
         updated is None
-        or updated.text != text
+        or updated.text != text + ("\n" + bridge.label if bridge is not None else "")
+        or (bridge is not None and updated.user_note_text != text)
         or updated.locator != existing.locator
         or updated.anchor_text != existing.anchor_text
         or updated.parent_id != existing.parent_id
@@ -201,54 +226,6 @@ def remove_comments(data: bytes, comment_ids: set[str] | None = None) -> Comment
     from .docx_comment_removal import remove_comment_sets
 
     return remove_comment_sets(data, comment_ids)
-
-
-_COMMENT_MARKUP_TAGS = {
-    qn("w:commentRangeStart"),
-    qn("w:commentRangeEnd"),
-    qn("w:commentReference"),
-}
-
-
-def _is_comment_markup(segment: InlineSegment) -> bool:
-    """True for native Word comment markers with no visible width."""
-    element = segment.element
-    if segment.text or element is None:
-        return False
-    if element.tag in _COMMENT_MARKUP_TAGS:
-        return True
-    if element.tag != qn("w:r"):
-        return False
-    children = [child for child in element if child.tag != qn("w:rPr")]
-    return bool(children) and all(child.tag in _COMMENT_MARKUP_TAGS for child in children)
-
-
-def _comment_range_runs(
-    paragraph: Any,
-    segments: list[InlineSegment],
-    start_index: int,
-    end_index: int,
-) -> tuple[Any, Any]:
-    """Map the visible text slice to the rebuilt runs python-docx should mark."""
-    emitted_indices = [
-        index for index, segment in enumerate(segments) if segment.kind == "opaque" or segment.text
-    ]
-    children = [child for child in paragraph._p if child.tag != qn("w:pPr")]
-    if len(children) != len(emitted_indices):
-        raise CommentMutationError("comment range cannot be mapped after rebuild")
-    by_segment = dict(zip(emitted_indices, children, strict=True))
-    text_indices = [
-        index
-        for index in range(start_index, end_index + 1)
-        if segments[index].kind == "text" and segments[index].text
-    ]
-    if not text_indices:
-        raise CommentMutationError("comment range cannot be represented after rebuild")
-    first = by_segment[text_indices[0]]
-    last = by_segment[text_indices[-1]]
-    if first.tag != qn("w:r") or last.tag != qn("w:r"):
-        raise CommentMutationError("comment range cannot be mapped to runs")
-    return Run(first, paragraph), Run(last, paragraph)
 
 
 def _apply_comment_author(document: Any, comment_id: str, author: CommentAuthor) -> None:
