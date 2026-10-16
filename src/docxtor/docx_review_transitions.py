@@ -1,5 +1,3 @@
-"""Source-bound raw span transitions proved by native insertion receipts."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass

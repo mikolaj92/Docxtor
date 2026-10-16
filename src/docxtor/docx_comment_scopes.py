@@ -1,5 +1,3 @@
-"""Native bookmark targets for comments displayed in the Word document body."""
-
 from __future__ import annotations
 
 import re

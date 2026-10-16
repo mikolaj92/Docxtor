@@ -1,5 +1,3 @@
-"""Validated native comment parent identities and in-package region-set metadata."""
-
 from __future__ import annotations
 
 from typing import Any

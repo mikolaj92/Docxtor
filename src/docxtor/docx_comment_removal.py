@@ -1,5 +1,3 @@
-"""Atomic removal of native comment sets, replies, and their thread identities."""
-
 from __future__ import annotations
 
 from dataclasses import replace
