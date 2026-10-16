@@ -379,6 +379,15 @@ Docxtor owns the physical OOXML mechanics for comments and tracked changes. It
 stays domain-blind: the caller supplies exact locators, ranges, author identity,
 and the accept/reject decision.
 
+Both renderers take `source` as a DOCX path (`str` or `Path`) or `bytes`, take
+`output` as the destination path, and return the published `Path`.
+`render_physical_review` takes a `PhysicalReviewPlan` and an optional keyword-only
+`PhysicalReviewer` (defaulting to `PhysicalReviewer()`) to create review markup;
+`render_physical_clean` takes a tuple of `PhysicalReviewEdit` values and applies
+inline edits without new tracked-change markup, skipping whole-paragraph insertions.
+Unknown locators, invalid inline ranges, and mismatched `expected_text` raise
+`PhysicalReviewRenderError` before publication; not all input errors are wrapped.
+
 Text replacement and deletion through `render_physical_review` or
 `render_physical_clean` preserve structurally empty inline content controls
 (`w:sdt` with an empty `w:sdtContent`). Controls inside the changed range retain
