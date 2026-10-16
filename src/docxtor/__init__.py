@@ -13,7 +13,6 @@ from .detection import DetectedDocumentType, detect_document_type
 from .docx import (
     AddressableComment,
     AddressableSpan,
-    CommentScopeBookmark,
     DocxDocument,
     InlineSegment,
     InlineSegmentKind,
@@ -93,7 +92,13 @@ from .docx_inventory import (
     SurfaceVisibility,
     inventory_docx,
 )
-from .docx_models import ParagraphLocator, ParagraphResolution, RunLocator, RunResolution
+from .docx_models import (
+    CommentScopeBookmark,
+    ParagraphLocator,
+    ParagraphResolution,
+    RunLocator,
+    RunResolution,
+)
 from .docx_mutations import (
     SurfaceDisposition,
     SurfaceDispositionStatus,
