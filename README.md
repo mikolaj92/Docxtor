@@ -410,6 +410,7 @@ from docxtor import (
     RevisionAuthor,
     RevisionRange,
     accept_all_revisions_bytes,
+    reject_all_revisions_bytes,
 )
 
 doc = DocxDocument.open("input.docx")
@@ -426,9 +427,10 @@ doc.replace_revision(
     "there",
     reviewer,
 )
-doc.remove_comments({added.receipt.created_ids[0]})
+commented = doc.remove_comments({added.receipt.created_ids[0]})
 doc.publish()
-accepted = accept_all_revisions_bytes(doc.to_bytes(), drop_comments=False)
+accepted = accept_all_revisions_bytes(commented.data, drop_comments=False)
+rejected = reject_all_revisions_bytes(commented.data, drop_comments=False)
 ```
 
 `DocxDocument` is the open DOCX handle. Comment add/update/remove and tracked
@@ -444,9 +446,10 @@ refuse instead of reporting success for a range they did not wrap.
 `publish()` fails closed. Docxtor does not invent a second review markup format.
 
 `inventory_review_markup()` and `inventory_revisions_bytes()` distinguish an
-empty document from incomplete coverage. Unsupported structural revisions fail
-closed. `apply_review_batch()` returns no intermediate bytes if any command
-fails.
+empty document from incomplete coverage. Both `accept_all_revisions_bytes` and
+`reject_all_revisions_bytes` refuse unsupported structural revisions and default to
+`drop_comments=True`; `False` preserves comments. `apply_review_batch()` returns no
+intermediate bytes if any command fails.
 
 #### Selective disposition of existing revisions
 
