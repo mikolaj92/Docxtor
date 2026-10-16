@@ -111,6 +111,12 @@ parts that `python-docx` cannot reach through relationships. It exposes neutral
 Each surface has a stable ID, value hash, visibility, and mechanical capability
 such as `value_replace` or `preserve_only`.
 
+`inventory()`, `facts()`, and `apply_surface_replacements()` read the current
+in-memory XML, including prior text replacements, while retaining orphan parts
+and their content types. The original opening bytes remain the publication
+source. Surface mutations return verified bytes in `result.data`; they do not
+update the document instance.
+
 ```python
 from docxtor import DocxDocument, InventoryCoverage
 
