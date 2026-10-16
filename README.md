@@ -8,7 +8,7 @@ round-trips across plain text files, DOCX files, and text-layer PDFs.
 
 ## Status
 
-Early library. The public API exports 217 names. The public API is not stable yet.
+Early library. The public API exports 216 names. The public API is not stable yet.
 
 ## Public API
 
