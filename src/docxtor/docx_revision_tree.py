@@ -6,7 +6,13 @@ from copy import deepcopy
 
 from lxml import etree
 
-from .docx_package import PackageEntry, PackageError, parse_package_xml, read_package_entries
+from .docx_package import (
+    PackageEntry,
+    PackageError,
+    _needs_xml_validation,
+    parse_package_xml,
+    read_package_entries,
+)
 from .docx_revision_inventory import (
     _UNSUPPORTED_RANGES,
     _present_kinds,
@@ -17,6 +23,7 @@ from .docx_revision_models import (
     _W14,
     AcceptRevisionsError,
     RejectRevisionsError,
+    RevisionInventoryCoverage,
     RevisionOperation,
     RevisionOperationError,
     RevisionOperationReceipt,
@@ -63,10 +70,16 @@ _REJECT_UNSUPPORTED = (
     "numberingChange",
 )
 
+
 def accept_all_revisions_bytes(
-    data: bytes, *, drop_comments: bool = True
+    data: bytes, *, drop_comments: bool = True, disable_tracking: bool = False
 ) -> RevisionOperationReceipt:
-    return _operate(data, RevisionOperation.ACCEPT_ALL, drop_comments=drop_comments)
+    return _operate(
+        data,
+        RevisionOperation.ACCEPT_ALL,
+        drop_comments=drop_comments,
+        disable_tracking=disable_tracking,
+    )
 
 
 def reject_all_revisions_bytes(
@@ -76,7 +89,11 @@ def reject_all_revisions_bytes(
 
 
 def _operate(
-    data: bytes, operation: RevisionOperation, *, drop_comments: bool
+    data: bytes,
+    operation: RevisionOperation,
+    *,
+    drop_comments: bool,
+    disable_tracking: bool = False,
 ) -> RevisionOperationReceipt:
     error_type = (
         AcceptRevisionsError if operation is RevisionOperation.ACCEPT_ALL else RejectRevisionsError
@@ -84,7 +101,16 @@ def _operate(
     try:
         entries = read_package_entries(data)
         before = inventory_revisions_bytes(data)
-        parsed = _preflight(entries, operation, drop_comments=drop_comments, error_type=error_type)
+        if before.coverage is not RevisionInventoryCoverage.COMPLETE or before.diagnostics:
+            details = "; ".join(item.detail for item in before.diagnostics)
+            raise error_type(f"revision inventory is incomplete: {details}")
+        parsed = _preflight(
+            entries,
+            operation,
+            drop_comments=drop_comments,
+            disable_tracking=disable_tracking,
+            error_type=error_type,
+        )
         transformed: list[PackageEntry] = []
         for entry in entries:
             if drop_comments and _is_comment_part(entry.name):
@@ -92,14 +118,18 @@ def _operate(
             payload = entry.data
             root = parsed.get(entry.name)
             if root is not None:
-                if _is_word_xml(entry.name):
+                if _is_word_xml(entry.name) or (disable_tracking and root.tag == _tag("settings")):
                     semantic_before = etree.tostring(root, method="c14n")
-                    if operation is RevisionOperation.ACCEPT_ALL:
-                        _accept_tree(root, entry.name, error_type)
-                    else:
-                        _reject_tree(root, entry.name, drop_comments, error_type)
-                    if drop_comments:
-                        _strip_comment_anchors(root)
+                    if _is_word_xml(entry.name):
+                        if operation is RevisionOperation.ACCEPT_ALL:
+                            _accept_tree(root, entry.name, error_type)
+                        else:
+                            _reject_tree(root, entry.name, drop_comments, error_type)
+                        if drop_comments:
+                            _strip_comment_anchors(root)
+                    if disable_tracking:
+                        for setting in list(root.iter(_tag("trackRevisions"))):
+                            _remove(setting)
                     if etree.tostring(root, method="c14n") != semantic_before:
                         payload = _serialize(root)
                 elif entry.name.endswith(".rels") and drop_comments:
@@ -113,8 +143,12 @@ def _operate(
         raise
     except PackageError as exc:
         raise error_type(str(exc)) from exc
+    if after.coverage is not RevisionInventoryCoverage.COMPLETE or after.diagnostics:
+        raise error_type("output revision inventory is incomplete")
     if after.revisions:
         raise error_type("revision markup survived the operation")
+    if disable_tracking and after.tracking_enabled:
+        raise error_type("revision tracking remains enabled")
     if drop_comments and _has_comments(output):
         raise error_type("comment markup survived the operation")
     return RevisionOperationReceipt(operation, output, before, after, drop_comments)
@@ -125,12 +159,14 @@ def _preflight(
     operation: RevisionOperation,
     *,
     drop_comments: bool,
+    disable_tracking: bool,
     error_type: type[RevisionOperationError],
 ) -> dict[str, etree._Element]:
     parsed: dict[str, etree._Element] = {}
     for entry in entries:
         relevant = (
             _is_word_xml(entry.name)
+            or (disable_tracking and _needs_xml_validation(entry.name, entry.data))
             or entry.name.endswith(".rels")
             or entry.name == "[Content_Types].xml"
         )
@@ -236,6 +272,7 @@ def _reject_tree(
                 parent.append(deepcopy(child))
     for paragraph in leftovers:
         _drop_numbering_leftover(paragraph, drop_comments)
+
 
 def _range_problem(root: etree._Element) -> str | None:
     for name in _UNSUPPORTED_RANGES:
