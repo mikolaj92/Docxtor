@@ -70,6 +70,13 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.0
 ```
 
+Pin the current release tag `v0.19.0` (matching `pyproject.toml`). For the
+feature history of earlier releases, see the git tags and `docs/releases/`.
+
+> Historical note only: tag `v0.4.1` still shipped distribution version
+> `0.4.0`; `v0.4.4` was the first correctly versioned stable-addressing pin.
+> Do not pin `v0.4.1`.
+
 ## Basic Usage
 
 ```python
