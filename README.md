@@ -310,14 +310,11 @@ Reviewkit (and Dike via it) delegates base paragraph/run/offset work to Docxtor 
 
 Temida consumers (posejdon_docs, dike_docs, anonimizator3000, ...) are thin adapters or high-level users. They contain **no** custom run splitting, offset math, or paragraph-mutation logic.
 
-Docxtor 0.3.0+ uses `python-docx`, a third-party library, as its internal DOCX engine.
-
 Key features:
 - Stable `container_id` (e.g. `"body:p:0"`, `"header:0:p:0"`, `"table:0:r:0:c:0:p:0"`, `"txbx:0:p:0"`) and `paragraph_index`.
 - `SegmentReplacement` for structured edits (full segment or sub-range by character offsets).
 - `apply_replacements(..., strict=True)` — fail-closed on unknown targets or bad offsets.
 - Partial replacements via `apply_replacements` update existing `w:t` text nodes without splitting `w:r` runs or creating new formatting boundaries; intermediate text nodes may remain empty.
-- Structured `SegmentReplacement` records and `apply_replacements(..., strict=True)` are the canonical DOCX editing path.
 
 Example with offsets (similar to `WriteTarget` style used in Temida/Posejdon):
 
@@ -375,9 +372,8 @@ doc.apply_replacements(
 
 ### Neutral Word review markup
 
-Docxtor owns the physical OOXML mechanics for comments and tracked changes. It
-stays domain-blind: the caller supplies exact locators, ranges, author identity,
-and the accept/reject decision.
+The caller supplies exact locators, ranges, author identity, and the
+accept/reject decision.
 
 Both renderers take `source` as a DOCX path (`str` or `Path`) or `bytes`, take
 `output` as the destination path, and return the published `Path`.
@@ -458,9 +454,10 @@ refuse instead of reporting success for a range they did not wrap.
 
 `inventory_review_markup()` and `inventory_revisions_bytes()` distinguish an
 empty document from incomplete coverage. Both `accept_all_revisions_bytes` and
-`reject_all_revisions_bytes` refuse unsupported structural revisions and default to
-`drop_comments=True`; `False` preserves comments. `apply_review_batch()` returns no
-intermediate bytes if any command fails.
+`reject_all_revisions_bytes` raise on unsupported revisions without returning
+partial output. Their default, `drop_comments=True`, removes comments; `False`
+preserves them. Each call above independently transforms `commented.data`.
+`apply_review_batch()` returns no intermediate bytes if any command fails.
 
 `RevisionInventory.tracking_enabled` reports enabled `w:trackRevisions` settings
 throughout the package, including orphan or relocated XML settings parts. It
