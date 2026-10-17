@@ -103,6 +103,29 @@ output.data          # bytes
 Each replacement targets a stable segment identifier. Offset-based partial
 replacements are available when a whole segment should not be rewritten.
 
+### DOCX admission inspection
+
+Import `inspect_docx_admission`, `DocxAdmissionInspection`, and
+`DocumentPackageKind` from `docxtor`. `inspect_docx_admission(content: bytes)`
+returns a `DocxAdmissionInspection` with these fields:
+
+- `package_kind`: `DocumentPackageKind.VALID` (`"valid"`) when
+  `word/document.xml` is present, `ENCRYPTED` (`"encrypted"`) when an OLE
+  signature or encryption package parts are detected (taking precedence), or
+  `INVALID` (`"invalid"`) otherwise. `VALID` does not guarantee full OOXML
+  conformance.
+- `has_main_document`: whether `word/document.xml` is present.
+- `has_macros`: whether a `vbaProject.bin` part is present; this does not analyze
+  or execute macros.
+- `page_count`: a positive page count from `docProps/app.xml` metadata, or
+  `None` when unavailable or invalid. It is not calculated by rendering.
+- `diagnostics`: a tuple of unreadable or unknown part names, including
+  `<package>` when the input cannot be read as a package.
+
+Coverage decision (wontfix for #205): new `INVALID`/macro unit tests remain
+intentionally unaddressed because the user prohibits adding unit tests;
+one-off verification does not provide persistent test coverage.
+
 ### Complete package inventory
 
 `DocxDocument.inventory()` enumerates every ZIP/OPC member, including orphan
