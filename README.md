@@ -61,16 +61,16 @@ the MIME type and file extension as secondary signals.
 From GitHub:
 
 ```bash
-python -m pip install git+https://github.com/mikolaj92/Docxtor.git@v0.19.0
+python -m pip install git+https://github.com/mikolaj92/Docxtor.git@v0.19.1
 ```
 
 With `uv`:
 
 ```bash
-uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.0
+uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.1
 ```
 
-Pin the current release tag `v0.19.0` (matching `pyproject.toml`). For the
+Pin the current release tag `v0.19.1` (matching `pyproject.toml`). For the
 feature history of earlier releases, see the git tags and `docs/releases/`.
 
 > Historical note only: tag `v0.4.1` still shipped distribution version
