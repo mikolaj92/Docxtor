@@ -459,6 +459,19 @@ empty document from incomplete coverage. Unsupported structural revisions fail
 closed. `apply_review_batch()` returns no intermediate bytes if any command
 fails.
 
+`RevisionInventory.tracking_enabled` reports enabled `w:trackRevisions` settings
+throughout the package, including orphan or relocated XML settings parts. It
+recognizes the OOXML on/off values. Malformed, duplicated, misplaced or
+unsupported tracking settings make coverage incomplete. Bulk acceptance and
+rejection require complete revision inventories before and after transformation.
+
+`accept_all_revisions_bytes(data, drop_comments=False, disable_tracking=True)`
+accepts the revisions and disables future change tracking. Its receipt records
+the tracking state before and after the operation. The default preserves the
+tracking setting. Disabling tracking leaves other settings, personal metadata,
+bookmarks and unresolved comments intact. Callers decide when accepting all
+revisions is appropriate for their publication workflow.
+
 #### Source-bound comment regions
 
 `DocxDocument.review_geometry()` inventories body paragraphs, tables, headers,
