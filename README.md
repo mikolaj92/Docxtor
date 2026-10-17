@@ -122,6 +122,11 @@ returns a `DocxAdmissionInspection` with these fields:
 - `diagnostics`: a tuple of unreadable or unknown part names, including
   `<package>` when the input cannot be read as a package.
 
+Coverage decision (wontfix for #205): no unit tests for `INVALID` packages or
+macro detection are added because this change prohibits adding unit tests.
+The requested persistent coverage remains intentionally unaddressed; the API
+descriptions above do not provide test coverage.
+
 ### Complete package inventory
 
 `DocxDocument.inventory()` enumerates every ZIP/OPC member, including orphan
