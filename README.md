@@ -199,7 +199,8 @@ ReviewKit remains responsible for review semantics.
 
 Import `flatten_link_fields` and `instruction_is_strippable_hyperlink_field`
 from `docxtor`. `flatten_link_fields(path: str | Path) -> bool` modifies the
-file in place: `True` means the package was rewritten; `False` means no change.
+file in place: `True` means the package was rewritten; `False` means no change
+and no file write.
 Use a working copy, never the original. Changed packages are written to a
 temporary file in the same directory, then atomically replace the supplied path.
 This does not guarantee removal of every link or validate the resulting package.
@@ -210,8 +211,8 @@ This does not guarantee removal of every link or validate the resulting package.
   incomplete complex fields are skipped.
 - `instruction_is_strippable_hyperlink_field(instruction: str) -> bool` checks
   text, case-insensitively, for a `HYPERLINK` or `LINK` word and a URI prefix:
-  `mailto:`, `http://`, `https://`, `file:`, or `ftp://`. It does not validate
-  the complete field. Exact internal TOC instructions such as
+  `mailto:`, `http://`, `https://`, `file:`, or `ftp://`. It neither reads a
+  package nor validates the complete field. Exact internal TOC instructions such as
   `HYPERLINK \\l _Toc123` return `False` and remain unchanged.
 - In those same story parts, relationship-backed `w:hyperlink` wrappers are
   replaced with their children. Corresponding relationships of type
