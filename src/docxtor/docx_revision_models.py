@@ -72,6 +72,7 @@ class RevisionInventory:
     revisions: tuple[Revision, ...]
     coverage: RevisionInventoryCoverage
     diagnostics: tuple[RevisionCoverageDiagnostic, ...]
+    tracking_enabled: bool = False
 
     @property
     def count(self) -> int:
