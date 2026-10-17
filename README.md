@@ -61,16 +61,16 @@ the MIME type and file extension as secondary signals.
 From GitHub:
 
 ```bash
-python -m pip install git+https://github.com/mikolaj92/Docxtor.git@v0.19.0
+python -m pip install git+https://github.com/mikolaj92/Docxtor.git@v0.19.1
 ```
 
 With `uv`:
 
 ```bash
-uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.0
+uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.1
 ```
 
-Pin the current release tag `v0.19.0` (matching `pyproject.toml`). For the
+Pin the current release tag `v0.19.1` (matching `pyproject.toml`). For the
 feature history of earlier releases, see the git tags and `docs/releases/`.
 
 > Historical note only: tag `v0.4.1` still shipped distribution version
@@ -458,6 +458,19 @@ refuse instead of reporting success for a range they did not wrap.
 empty document from incomplete coverage. Unsupported structural revisions fail
 closed. `apply_review_batch()` returns no intermediate bytes if any command
 fails.
+
+`RevisionInventory.tracking_enabled` reports enabled `w:trackRevisions` settings
+throughout the package, including orphan or relocated XML settings parts. It
+recognizes the OOXML on/off values. Malformed, duplicated, misplaced or
+unsupported tracking settings make coverage incomplete. Bulk acceptance and
+rejection require complete revision inventories before and after transformation.
+
+`accept_all_revisions_bytes(data, drop_comments=False, disable_tracking=True)`
+accepts the revisions and disables future change tracking. Its receipt records
+the tracking state before and after the operation. The default preserves the
+tracking setting. Disabling tracking leaves other settings, personal metadata,
+bookmarks and unresolved comments intact. Callers decide when accepting all
+revisions is appropriate for their publication workflow.
 
 #### Source-bound comment regions
 

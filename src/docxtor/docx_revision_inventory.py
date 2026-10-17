@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from lxml import etree
 
-from .docx_package import PackageError, parse_package_xml, read_package_entries
+from .docx_package import (
+    PackageError,
+    _needs_xml_validation,
+    parse_package_xml,
+    read_package_entries,
+)
 from .docx_revision_models import (
     _STRICT_W,
     _W,
@@ -79,6 +84,7 @@ _EMPTY_CUSTOM_XML_RANGE_MARKERS = frozenset(
 _BLOCK_REVISION_CHILDREN = frozenset({"p", "tbl", "tr", "tc"})
 _PROPERTY_CHANGE_SNAPSHOT = {"pPrChange": "pPr", "rPrChange": "rPr"}
 
+
 def inventory_revisions_bytes(data: bytes) -> RevisionInventory:
     """Return a neutral inventory of tracked-change XML in every Word XML story."""
     try:
@@ -87,11 +93,44 @@ def inventory_revisions_bytes(data: bytes) -> RevisionInventory:
         raise RevisionOperationError(str(exc)) from exc
     revisions: list[Revision] = []
     diagnostics: list[RevisionCoverageDiagnostic] = []
+    tracking_enabled = False
     for entry in entries:
-        if not _is_word_xml(entry.name):
+        if not _needs_xml_validation(entry.name, entry.data):
             continue
         root = parse_package_xml(entry.data, part_name=entry.name)
         tree = root.getroottree()
+        tracking = list(root.iter(f"{{{_W}}}trackRevisions"))
+        for element in tracking:
+            value = element.get(f"{{{_W}}}val")
+            value = value.strip() if value is not None else None
+            tracking_enabled |= value not in {"0", "false", "off"}
+            if (
+                root.tag != f"{{{_W}}}settings"
+                or element.getparent() is not root
+                or len(tracking) != 1
+                or len(element)
+                or value not in {None, "0", "1", "true", "false", "on", "off"}
+            ):
+                diagnostics.append(
+                    RevisionCoverageDiagnostic(
+                        entry.name,
+                        "invalid_tracking_setting",
+                        "trackRevisions is malformed, duplicated or outside document settings",
+                        tree.getpath(element),
+                    )
+                )
+        for namespace in (_STRICT_W, _W14):
+            for element in root.iter(f"{{{namespace}}}trackRevisions"):
+                diagnostics.append(
+                    RevisionCoverageDiagnostic(
+                        entry.name,
+                        "unsupported_namespace",
+                        "trackRevisions uses non-transitional WordprocessingML",
+                        tree.getpath(element),
+                    )
+                )
+        if not _is_word_xml(entry.name):
+            continue
         for namespace in (_STRICT_W, _W14):
             for raw_kind in _present_kinds(root, namespace):
                 diagnostics.append(
@@ -143,7 +182,9 @@ def inventory_revisions_bytes(data: bytes) -> RevisionInventory:
             else RevisionInventoryCoverage.INCOMPLETE
         ),
         diagnostics=tuple(diagnostics),
+        tracking_enabled=tracking_enabled,
     )
+
 
 def _unsafe_revision_detail(element: etree._Element, kind: str) -> str | None:
     if kind in _FORMATTING_PROPERTY_CHANGES:
@@ -171,6 +212,7 @@ def _unsafe_revision_detail(element: etree._Element, kind: str) -> str | None:
         return None
     return f"unsupported revision kind {kind}"
 
+
 def _direct_revision_text(element: etree._Element) -> str:
     parts: list[str] = []
     for node in element.iter():
@@ -191,11 +233,13 @@ def _direct_revision_text(element: etree._Element) -> str:
         )
     return "".join(parts)
 
+
 def _split_tag(tag: str) -> tuple[str | None, str]:
     if tag.startswith("{"):
         namespace, local = tag[1:].split("}", 1)
         return namespace, local
     return None, tag
+
 
 def _present_kinds(root: etree._Element, namespace: str) -> set[str]:
     return {
@@ -203,6 +247,7 @@ def _present_kinds(root: etree._Element, namespace: str) -> set[str]:
         for name in _REVISION_NAMES
         if next(root.iter(f"{{{namespace}}}{name}"), None) is not None
     }
+
 
 def _kind(raw: str) -> RevisionKind:
     try:
