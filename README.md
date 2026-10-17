@@ -39,7 +39,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | Revision inventory and bulk cleanup | `AcceptRevisionsError`, `RejectRevisionsError`, `Revision`, `RevisionInventory`, `RevisionInventoryCoverage`, `RevisionKind`, `RevisionOperation`, `RevisionOperationError`, `RevisionOperationReceipt`, `accept_all_revisions_bytes`, `inventory_revisions_bytes`, `reject_all_revisions_bytes`, `remove_all_comments_bytes` |
 | DOCX admission | `DocumentPackageKind`, `DocxAdmissionInspection`, `inspect_docx_admission` |
 | Package and combined transactions | `CombinedTransactionReceipt`, `apply_docx_transaction`, `PackageDisposition`, `PackageDispositionStatus`, `PackageMutation`, `PackageMutationError`, `PackageMutationKind`, `PackageTransactionReceipt`, `apply_package_transaction` |
-| DOCX creation | `DocxCreationError`, `create_docx_from_paragraphs`, `write_docx_from_paragraphs` |
+| DOCX creation | `DocxCreationError`, `create_docx_from_paragraphs` |
 | Hyperlink fields | `flatten_link_fields`, `instruction_is_strippable_hyperlink_field` |
 | Metadata inspection and sanitization | `MetadataInspection`, `inspect_docx_metadata`, `sanitize_docx_metadata` |
 | Publication marks and appendices | `BodyAppendix`, `DocumentMark`, `PublicationMarkError`, `append_body_appendix`, `has_body_appendix`, `has_document_mark`, `remove_body_appendix`, `stamp_document_mark`, `write_publication_bytes` |
