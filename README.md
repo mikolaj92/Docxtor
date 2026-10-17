@@ -195,6 +195,36 @@ authorship attributes, and thread sidecar parts (`commentsExtended.xml`,
 not become user-authored segments. Unknown comment targets fail before any edit.
 ReviewKit remains responsible for review semantics.
 
+### Flatten hyperlink fields on a working copy
+
+Import `flatten_link_fields` and `instruction_is_strippable_hyperlink_field`
+from `docxtor`. `flatten_link_fields(path: str | Path) -> bool` modifies the
+file in place: `True` means the package was rewritten; `False` means no change.
+Use a working copy, never the original. Changed packages are written to a
+temporary file in the same directory, then atomically replace the supplied path.
+This does not guarantee removal of every link or validate the resulting package.
+
+- In `word/document.xml`, `word/header*.xml`, and `word/footer*.xml`, it
+  flattens matching simple fields and non-nested complex fields with begin,
+  separator, and end markers, preserving their display elements. Nested or
+  incomplete complex fields are skipped.
+- `instruction_is_strippable_hyperlink_field(instruction: str) -> bool` checks
+  text, case-insensitively, for a `HYPERLINK` or `LINK` word and a URI prefix:
+  `mailto:`, `http://`, `https://`, `file:`, or `ftp://`. It does not validate
+  the complete field. Exact internal TOC instructions such as
+  `HYPERLINK \\l _Toc123` return `False` and remain unchanged.
+- In those same story parts, relationship-backed `w:hyperlink` wrappers are
+  replaced with their children. Corresponding relationships of type
+  `…/hyperlink` are removed. Anchors without a relationship ID, including TOC
+  anchors, remain unchanged.
+- In `customXml/*.xml`, entire text, tail, and attribute values containing
+  those URI prefixes are emptied, except schema-identifier attributes.
+  Namespace declarations and schema identifiers are preserved.
+
+Malformed XML in the supported story parts raises an exception before writing.
+Malformed `customXml` or relationship XML stays unchanged, even if another part
+is rewritten. Other link forms and unsupported story parts can retain links.
+
 ### Text search across runs
 
 `DocxDocument.find_text()` finds overlapping exact matches across Word run
