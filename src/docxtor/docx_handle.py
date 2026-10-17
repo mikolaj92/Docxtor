@@ -28,7 +28,7 @@ from .docx_comment_mutations import (
 from .docx_package import PackageEntry, PackageError, parse_package_xml, read_package_entries
 from .docx_publish import PublishError, PublishReceipt, publish_docx
 from .docx_review_inventory import inventory_review_markup
-from .docx_review_models import OperationReceipt
+from .docx_review_models import OperationReceipt, OperationStatus, ReviewBatchReceipt
 from .docx_review_transaction import ReviewCommand, apply_review_batch
 from .docx_revision_mutations import (
     RevisionAuthor,
@@ -45,12 +45,17 @@ from .docx_revision_mutations import (
 from .docx_revisions import inventory_revisions_bytes
 
 if TYPE_CHECKING:
-    from .docx_review_geometry import PhysicalCommentRange, PhysicalReviewGeometry
+    from .docx_review_geometry import (
+        PhysicalCommentRange,
+        PhysicalCommentSpan,
+        PhysicalReviewGeometry,
+    )
     from .docx_review_projection import DocxReviewProjection
+    from .docx_review_transitions import PhysicalSpanTransition
 
 _MutationResult = TypeVar("_MutationResult", CommentMutationResult, RevisionMutationResult)
 _LEGACY_SERIALIZER_OPERATIONS = frozenset(
-    {"add_comment", "update_comment", "remove_comments", "insert_revision", "delete_revision"}
+    {"add_comment", "update_comment", "insert_revision", "delete_revision"}
 )
 
 
@@ -82,14 +87,46 @@ class DocxHandleOperations:
         """Add a comment only while its captured physical geometry is current."""
         from .docx_review_geometry_comments import add_physical_comment_bytes
 
-        result = add_physical_comment_bytes(self._current_review_bytes(), target, text, author)
-        self._adopt_bytes(result.data)
+        source = self._current_review_bytes()
+        result = add_physical_comment_bytes(source, target, text, author)
+        self._adopt_review_mutation(source, result.data, result.receipt)
         return result
 
-    def apply_review_batch(self, commands: Sequence[ReviewCommand]) -> None:
+    def add_physical_comment_regions(
+        self,
+        regions: tuple[tuple[PhysicalCommentSpan, ...], ...],
+        text: str,
+        author: CommentAuthor,
+        *,
+        document_sha256: str | None = None,
+    ) -> CommentMutationResult:
+        """Adopt a fully validated native comment set in one in-memory operation."""
+        from .docx_review_geometry_comments import add_physical_comment_regions_bytes
+
+        source = self._current_review_bytes()
+        result = add_physical_comment_regions_bytes(
+            source, regions, text, author, document_sha256=document_sha256
+        )
+        self._adopt_review_mutation(source, result.data, result.receipt)
+        return result
+
+    def apply_review_batch(self, commands: Sequence[ReviewCommand]) -> ReviewBatchReceipt:
         source = self._current_review_bytes()
         receipt = apply_review_batch(source, [self._preserving_command(item) for item in commands])
-        self._adopt_bytes(receipt.data)
+        combined = OperationReceipt(
+            operation="review_batch",
+            status=OperationStatus.APPLIED,
+            affected_parts=tuple(
+                sorted({part for item in receipt.operations for part in item.affected_parts})
+            ),
+            before_sha256=sha256(source).hexdigest(),
+            after_sha256=sha256(receipt.data).hexdigest(),
+            text_insertions=tuple(
+                insertion for item in receipt.operations for insertion in item.text_insertions
+            ),
+        )
+        self._adopt_review_mutation(source, receipt.data, combined)
+        return receipt
 
     def _preserving_command(self, command: ReviewCommand) -> ReviewCommand:
         def mutate(data: bytes) -> tuple[bytes, OperationReceipt]:
@@ -115,10 +152,8 @@ class DocxHandleOperations:
         author: CommentAuthor,
     ) -> CommentMutationResult:
         source = self._current_review_bytes()
-        result = self._preserve_mutation_result(
-            source, add_comment_bytes(source, target, text, author)
-        )
-        self._adopt_bytes(result.data)
+        result = add_comment_bytes(source, target, text, author)
+        self._adopt_review_mutation(source, result.data, result.receipt)
         return result
 
     def update_comment(
@@ -140,7 +175,7 @@ class DocxHandleOperations:
                 author=author,
             ),
         )
-        self._adopt_bytes(result.data)
+        self._adopt_review_mutation(source, result.data, result.receipt)
         return result
 
     def delete_comment(self, comment_id: str) -> CommentMutationResult:
@@ -148,8 +183,8 @@ class DocxHandleOperations:
 
     def remove_comments(self, comment_ids: set[str] | None = None) -> CommentMutationResult:
         source = self._current_review_bytes()
-        result = self._preserve_mutation_result(source, remove_comments_bytes(source, comment_ids))
-        self._adopt_bytes(result.data)
+        result = remove_comments_bytes(source, comment_ids)
+        self._adopt_review_mutation(source, result.data, result.receipt)
         return result
 
     def insert_revision(
@@ -162,7 +197,7 @@ class DocxHandleOperations:
         result = self._preserve_mutation_result(
             source, insert_revision_bytes(source, position, text, reviewer)
         )
-        self._adopt_bytes(result.data)
+        self._adopt_review_mutation(source, result.data, result.receipt)
         return result
 
     def delete_revision(
@@ -174,7 +209,7 @@ class DocxHandleOperations:
         result = self._preserve_mutation_result(
             source, delete_revision_bytes(source, target, reviewer)
         )
-        self._adopt_bytes(result.data)
+        self._adopt_review_mutation(source, result.data, result.receipt)
         return result
 
     def replace_revision(
@@ -196,7 +231,8 @@ class DocxHandleOperations:
                 reviewer,
             ),
         )
-        self._adopt_bytes(inserted.data)
+        self._remember_review_transition(source, deleted.data, deleted.receipt)
+        self._adopt_review_mutation(deleted.data, inserted.data, inserted.receipt)
         return deleted, inserted
 
     def publish(
@@ -294,9 +330,7 @@ class DocxHandleOperations:
         entries.extend(entry for entry in rendered_entries if entry.name not in original_names)
         return _package_bytes(tuple(entries))
 
-    def _preserve_mutation_result(
-        self, source: bytes, result: _MutationResult
-    ) -> _MutationResult:
+    def _preserve_mutation_result(self, source: bytes, result: _MutationResult) -> _MutationResult:
         data = self._preserve_review_output(source, result.data)
         receipt = _receipt_for_payload(source, data, result.receipt)
         if isinstance(result, CommentMutationResult):
@@ -311,11 +345,38 @@ class DocxHandleOperations:
             after=inventory_revisions_bytes(data),
         )
 
+    def map_review_spans(
+        self,
+        document_sha256: str,
+        spans: tuple[PhysicalCommentSpan, ...],
+    ) -> tuple[PhysicalCommentSpan, ...]:
+        from .docx_review_transitions import map_spans
+
+        return map_spans(
+            getattr(self, "_review_transitions", ()), document_sha256, self.review_geometry(), spans
+        )
+
+    def _remember_review_transition(
+        self, source: bytes, result: bytes, receipt: OperationReceipt
+    ) -> None:
+        from .docx_review_transitions import record_span_transition
+
+        if source == result:
+            return
+        history: tuple[PhysicalSpanTransition, ...] = getattr(self, "_review_transitions", ())
+        self._review_transitions = (*history, record_span_transition(source, result, receipt))
+
+    def _adopt_review_mutation(self, source: bytes, data: bytes, receipt: OperationReceipt) -> None:
+        self._adopt_bytes(data)
+        self._remember_review_transition(source, data, receipt)
+
     def _adopt_bytes(self, data: bytes) -> None:
         source_path = self._source_path
+        history = getattr(self, "_review_transitions", ())
         replacement = type(self).open_bytes(data, filename=self.filename)
         self.__dict__.update(replacement.__dict__)
         self._source_path = source_path
+        self._review_transitions = history
 
 
 def _package_bytes(entries: tuple[PackageEntry, ...]) -> bytes:
@@ -364,8 +425,7 @@ def _merge_content_types(
                 node.get("PartName") if node.tag.endswith("Override") else node.get("Extension"),
             ): node
             for node in tree
-            if isinstance(node.tag, str)
-            and node.tag.rsplit("}", 1)[-1] in {"Default", "Override"}
+            if isinstance(node.tag, str) and node.tag.rsplit("}", 1)[-1] in {"Default", "Override"}
         }
 
     original_by_key = declarations(root)

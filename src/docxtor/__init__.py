@@ -1,4 +1,4 @@
-__version__ = "0.18.0"
+__version__ = "0.19.1"
 
 from .common import (
     DOCX_MIME,
@@ -92,7 +92,13 @@ from .docx_inventory import (
     SurfaceVisibility,
     inventory_docx,
 )
-from .docx_models import ParagraphLocator, ParagraphResolution, RunLocator, RunResolution
+from .docx_models import (
+    CommentScopeBookmark,
+    ParagraphLocator,
+    ParagraphResolution,
+    RunLocator,
+    RunResolution,
+)
 from .docx_mutations import (
     SurfaceDisposition,
     SurfaceDispositionStatus,
@@ -149,15 +155,20 @@ from .docx_review_geometry import (
     PhysicalCommentSpan,
     PhysicalParagraphGeometry,
     PhysicalReviewGeometry,
+    PhysicalTextOrigin,
     physical_span_for_semantic_range,
     project_docx_review_geometry,
 )
-from .docx_review_geometry_comments import add_physical_comment_bytes
+from .docx_review_geometry_comments import (
+    add_physical_comment_bytes,
+    add_physical_comment_regions_bytes,
+)
 from .docx_review_inventory import inventory_review_markup
 from .docx_review_models import (
     CommentRevisionAssociation,
     OperationReceipt,
     OperationStatus,
+    PhysicalTextInsertion,
     ReviewBatchReceipt,
     ReviewCoverage,
     ReviewDiagnostic,
@@ -212,10 +223,12 @@ __all__ = [
     "PhysicalCommentRange",
     "PhysicalCommentSpan",
     "PhysicalParagraphGeometry",
+    "PhysicalTextOrigin",
     "PhysicalReviewGeometry",
     "physical_span_for_semantic_range",
     "project_docx_review_geometry",
     "add_physical_comment_bytes",
+    "add_physical_comment_regions_bytes",
     "remove_all_comments_bytes",
     "RevisionDecision",
     "RevisionDisposition",
@@ -307,6 +320,7 @@ __all__ = [
     "CommentRevisionAssociation",
     "OperationReceipt",
     "OperationStatus",
+    "PhysicalTextInsertion",
     "ReviewBatchReceipt",
     "ReviewCoverage",
     "ReviewDiagnostic",
@@ -323,6 +337,7 @@ __all__ = [
     "DocumentKind",
     "DetectedDocumentType",
     "AddressableComment",
+    "CommentScopeBookmark",
     "AddressableSpan",
     "DocumentSurface",
     "DocxDocument",
@@ -404,7 +419,6 @@ __all__ = [
     "sanitize_docx_metadata",
     "DocxCreationError",
     "create_docx_from_paragraphs",
-    "write_docx_from_paragraphs",
     "DocumentPackageKind",
     "DocxAdmissionInspection",
     "inspect_docx_admission",
@@ -424,7 +438,7 @@ __all__ = [
 
 from .docx_admission import DocumentPackageKind, DocxAdmissionInspection, inspect_docx_admission
 from .docx_combined_transaction import CombinedTransactionReceipt, apply_docx_transaction
-from .docx_create import DocxCreationError, create_docx_from_paragraphs, write_docx_from_paragraphs
+from .docx_create import DocxCreationError, create_docx_from_paragraphs
 from .docx_inventory import SURFACE_LOCATOR_VERSION, PackageGraph, PackageRelationship
 from .docx_link_fields import flatten_link_fields, instruction_is_strippable_hyperlink_field
 from .docx_metadata import MetadataInspection, inspect_docx_metadata, sanitize_docx_metadata

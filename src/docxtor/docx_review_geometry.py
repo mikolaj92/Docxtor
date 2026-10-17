@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from io import BytesIO
 from typing import Any
@@ -12,6 +12,7 @@ from docx.oxml.ns import qn
 
 from .docx_alternate_content import select_alternate_branch
 from .docx_inline import _visible_text, paragraph_to_inline_segments
+from .docx_models import CommentScopeBookmark
 from .docx_ns import _TEXT_NODE_TAGS, MC_NS, W_P
 from .docx_package import PackageEntry, parse_package_xml, read_package_entries
 from .docx_review_inventory import inventory_review_markup
@@ -45,6 +46,14 @@ class PhysicalCommentRange:
 
 
 @dataclass(frozen=True)
+class PhysicalTextOrigin:
+    effective_start: int
+    effective_end: int
+    source_start: int
+    source_end: int
+
+
+@dataclass(frozen=True)
 class PhysicalParagraphGeometry:
     locator: str
     text: str
@@ -58,6 +67,8 @@ class PhysicalParagraphGeometry:
     opaque_ranges: tuple[tuple[int, int], ...] = ()
     has_revisions: bool = False
     addressable: bool = True
+    effective_text: str = ""
+    text_origins: tuple[PhysicalTextOrigin, ...] = ()
 
     @property
     def span(self) -> PhysicalCommentSpan:
@@ -74,6 +85,9 @@ class PhysicalCommentAnchor:
     document_sha256: str
     coverage: ReviewCoverage
     diagnostics: tuple[ReviewDiagnostic, ...] = ()
+    anchor_evidence: str | None = field(default=None, compare=False)
+    display_spans: tuple[PhysicalCommentSpan, ...] = ()
+    display_visible: bool = False
 
     @property
     def addressable(self) -> bool:
@@ -91,6 +105,7 @@ class PhysicalReviewGeometry:
     document_sha256: str
     coverage: ReviewCoverage
     diagnostics: tuple[ReviewDiagnostic, ...] = ()
+    scope_bookmarks: tuple[CommentScopeBookmark, ...] = ()
 
 
 @dataclass
@@ -142,15 +157,9 @@ def physical_span_for_semantic_range(
     end_offset: int,
     expected_text: str,
 ) -> PhysicalCommentSpan:
-    """Map the strict strip-only semantic view of an unrevised paragraph to source.
-
-    This deliberately supports no normalization beyond leading/trailing whitespace.
-    Revision-bearing paragraphs require a separate proved origin projection.
-    """
-    if not paragraph.addressable or paragraph.has_revisions:
+    """Map effective text through exact source-node origins, retaining revision nodes."""
+    if not paragraph.addressable:
         raise ValueError("paragraph has no supported semantic-to-physical coordinate mapping")
-    if paragraph.text.strip() != semantic_text:
-        raise ValueError("semantic text does not match the supported strip-only source profile")
     if (
         type(start_offset) is not int
         or type(end_offset) is not int
@@ -158,11 +167,85 @@ def physical_span_for_semantic_range(
         or semantic_text[start_offset:end_offset] != expected_text
     ):
         raise ValueError("semantic range does not match its captured paragraph text")
+    if paragraph.has_revisions:
+        source = paragraph.effective_text
+        if source.strip() != semantic_text:
+            raise ValueError("semantic text differs from the source-proven effective profile")
+        leading = len(source) - len(source.lstrip())
+        start, end = leading + start_offset, leading + end_offset
+        origins = paragraph.text_origins
+        if start == end:
+            positions = [
+                item.source_start + start - item.effective_start
+                for item in origins
+                if item.effective_start <= start < item.effective_end
+            ]
+            physical_start = positions[0] if positions else len(paragraph.text)
+            physical_end = physical_start
+        else:
+            first = next(
+                (item for item in origins if item.effective_start <= start < item.effective_end),
+                None,
+            )
+            last = next(
+                (item for item in origins if item.effective_start < end <= item.effective_end), None
+            )
+            if first is None or last is None:
+                raise ValueError("semantic endpoints have no proved source origin")
+            physical_start = first.source_start + start - first.effective_start
+            physical_end = last.source_start + end - last.effective_start
+        return PhysicalCommentSpan(
+            paragraph.locator,
+            physical_start,
+            physical_end,
+            paragraph.text[physical_start:physical_end],
+        )
+    if paragraph.text.strip() != semantic_text:
+        raise ValueError("semantic text does not match the supported strip-only source profile")
     leading = len(paragraph.text) - len(paragraph.text.lstrip())
     start, end = leading + start_offset, leading + end_offset
-    if paragraph.text[start:end] != expected_text:
-        raise ValueError("semantic range cannot be proved against the physical source")
-    return PhysicalCommentSpan(paragraph.locator, start, end, expected_text)
+    return PhysicalCommentSpan(paragraph.locator, start, end, paragraph.text[start:end])
+
+
+def _effective_origins(paragraph: Any) -> tuple[str, tuple[PhysicalTextOrigin, ...]]:
+    raw_offset = effective_offset = 0
+    values: list[str] = []
+    origins: list[PhysicalTextOrigin] = []
+
+    def walk(node: Any, deleted: bool = False) -> None:
+        nonlocal raw_offset, effective_offset
+        if node is not paragraph and _is_text_box_container(node.tag):
+            return
+        if node.tag in {qn("w:pPr"), qn("w:rPr")}:
+            return
+        if node.tag == f"{{{MC_NS}}}AlternateContent":
+            walk(select_alternate_branch(node).selected, deleted)
+            return
+        deleted = deleted or node.tag in {qn("w:del"), qn("w:moveFrom")}
+        value = None
+        if node.tag in _TEXT_NODE_TAGS:
+            value = node.text or ""
+        elif node.tag in {qn("w:tab"), qn("w:br"), qn("w:cr")}:
+            value = "\t" if node.tag == qn("w:tab") else "\n"
+        if value is not None:
+            if not deleted and value:
+                origins.append(
+                    PhysicalTextOrigin(
+                        effective_offset,
+                        effective_offset + len(value),
+                        raw_offset,
+                        raw_offset + len(value),
+                    )
+                )
+                values.append(value)
+                effective_offset += len(value)
+            raw_offset += len(value)
+            return
+        for child in node:
+            walk(child, deleted)
+
+    walk(paragraph)
+    return "".join(values), tuple(origins)
 
 
 def _read_geometry_state(data: bytes) -> _GeometryState:
@@ -241,6 +324,7 @@ def _read_geometry_state(data: bytes) -> _GeometryState:
             ppr = original.find(qn("w:pPr"))
             style = ppr.find(qn("w:pStyle")) if ppr is not None else None
             style_id = style.get(qn("w:val"), "") if style is not None else ""
+            effective_text, text_origins = _effective_origins(original)
             physical = PhysicalParagraphGeometry(
                 locator=locator,
                 text=text,
@@ -254,6 +338,8 @@ def _read_geometry_state(data: bytes) -> _GeometryState:
                 opaque_ranges=tuple(opaque),
                 has_revisions=_has_revisions(original),
                 addressable=addressable,
+                effective_text=effective_text,
+                text_origins=text_origins,
             )
             story_counts[story_id] = physical.story_order_index + 1
             record = _GeometryParagraph(physical, original, ordinal)
@@ -295,6 +381,10 @@ def _read_geometry_state(data: bytes) -> _GeometryState:
                 markers.setdefault(comment_id, []).append(
                     _Marker(kind, record, offsets.get(element), order, part_name)
                 )
+        from .docx_comment_threads import comment_parent_graph
+
+        parents, thread_issues = comment_parent_graph(roots)
+        diagnostics.extend(item for item in thread_issues if item not in diagnostics)
         anchors = []
         for comment_id in sorted(bodies.keys() | markers.keys()):
             anchor = _project_anchor(
@@ -305,6 +395,89 @@ def _read_geometry_state(data: bytes) -> _GeometryState:
                 digest,
             )
             anchors.append(anchor)
+        from .docx_comment_scopes import owned_scope_bookmarks
+
+        scope_bookmarks = owned_scope_bookmarks(roots)
+        for scope in scope_bookmarks:
+            rows = []
+            for part_name, root in roots.items():
+                for order, element in enumerate(root.iter()):
+                    if element.tag not in {qn("w:bookmarkStart"), qn("w:bookmarkEnd")}:
+                        continue
+                    if element.get(qn("w:id")) != scope.bookmark_id:
+                        continue
+                    owner = next(
+                        (node for node in element.iterancestors() if node.tag == W_P), None
+                    )
+                    candidates = raw_by_paragraph.get(owner, [])
+                    kind = "start" if element.tag == qn("w:bookmarkStart") else "end"
+                    record = (
+                        candidates[0]
+                        if len(candidates) == 1 and _marker_placement_valid(element, kind)
+                        else None
+                    )
+                    offset = _marker_offsets(record.element).get(element) if record else None
+                    if record:
+                        offset = _source_offset_marker(record.element, element)
+                    rows.append(_Marker(kind, record, offset, order, part_name))
+            logical = _project_anchor(
+                scope.bookmark_id, 1, rows, paragraphs, digest, reference_required=False
+            )
+            index = next(
+                index
+                for index, anchor in enumerate(anchors)
+                if anchor.comment_id == scope.comment_id
+            )
+            display = anchors[index]
+            if not display.addressable or not display.display_visible:
+                logical = replace(
+                    logical,
+                    spans=(),
+                    coverage=ReviewCoverage.INCOMPLETE,
+                    diagnostics=(
+                        ReviewDiagnostic("logical_scope_display_invisible", scope.comment_id),
+                    ),
+                )
+            anchors[index] = replace(
+                logical,
+                comment_id=scope.comment_id,
+                display_spans=display.spans,
+                display_visible=display.display_visible,
+                anchor_evidence="native_bookmark",
+            )
+        by_id = {anchor.comment_id: anchor for anchor in anchors}
+        resolved: dict[str, PhysicalCommentAnchor] = {}
+
+        def resolve(identity: str, visiting: frozenset[str] = frozenset()) -> PhysicalCommentAnchor:
+            if identity in resolved:
+                return resolved[identity]
+            anchor = by_id[identity]
+            parent_id = parents.get(identity)
+            if parent_id is None or thread_issues:
+                resolved[identity] = anchor
+                return anchor
+            if identity in visiting or parent_id not in by_id:
+                return anchor
+            parent = resolve(parent_id, visiting | {identity})
+            if parent.addressable:
+                if not markers.get(identity) and bodies.get(identity) == 1:
+                    anchor = replace(
+                        parent, comment_id=identity, anchor_evidence=f"inherited:{parent_id}"
+                    )
+                elif anchor.addressable and anchor.spans != parent.spans:
+                    anchor = replace(
+                        anchor,
+                        spans=(),
+                        coverage=ReviewCoverage.INCOMPLETE,
+                        diagnostics=(
+                            ReviewDiagnostic("conflicting_comment_thread_scope", identity),
+                        ),
+                    )
+            resolved[identity] = anchor
+            return anchor
+
+        anchors = [resolve(anchor.comment_id) for anchor in anchors]
+        for anchor in anchors:
             diagnostics.extend(anchor.diagnostics)
         projection = PhysicalReviewGeometry(
             paragraphs=tuple(record.geometry for record in paragraphs.values()),
@@ -312,6 +485,7 @@ def _read_geometry_state(data: bytes) -> _GeometryState:
             document_sha256=digest,
             coverage=ReviewCoverage.INCOMPLETE if diagnostics else ReviewCoverage.COMPLETE,
             diagnostics=tuple(diagnostics),
+            scope_bookmarks=scope_bookmarks,
         )
         return _GeometryState(projection, entries, roots, paragraphs, main_part_name)
     except Exception as exc:
@@ -435,6 +609,12 @@ def _marker_coordinates(paragraph: Any) -> tuple[dict[Any, int], str]:
     return offsets, "".join(text)
 
 
+def _source_offset_marker(paragraph: Any, marker: Any) -> int:
+    from .docx_comment_scopes import source_offset
+
+    return source_offset(paragraph, marker)
+
+
 def _marker_offsets(paragraph: Any) -> dict[Any, int]:
     return _marker_coordinates(paragraph)[0]
 
@@ -484,6 +664,8 @@ def _project_anchor(
     markers: list[_Marker],
     paragraphs: dict[str, _GeometryParagraph],
     digest: str,
+    *,
+    reference_required: bool = True,
 ) -> PhysicalCommentAnchor:
     issues = []
     starts = [marker for marker in markers if marker.kind == "start"]
@@ -496,7 +678,8 @@ def _project_anchor(
                 f"Comment {comment_id} has an unsupported decimal identity.",
             )
         )
-    if body_count != 1 or any(len(items) != 1 for items in (starts, ends, references)):
+    required = (starts, ends, references) if reference_required else (starts, ends)
+    if body_count != 1 or any(len(items) != 1 for items in required):
         issues.append(
             ReviewDiagnostic(
                 "comment_geometry_nonunique",
@@ -506,7 +689,8 @@ def _project_anchor(
     start_locator = end_locator = None
     spans: tuple[PhysicalCommentSpan, ...] = ()
     if not issues:
-        start, end, reference = starts[0], ends[0], references[0]
+        start, end = starts[0], ends[0]
+        reference = references[0] if reference_required else end
         start_locator = start.paragraph.geometry.locator if start.paragraph is not None else None
         end_locator = end.paragraph.geometry.locator if end.paragraph is not None else None
         if any(marker.paragraph is None or marker.offset is None for marker in markers):
@@ -534,7 +718,9 @@ def _project_anchor(
                         f"Comment {comment_id} crosses physical stories.",
                     )
                 )
-            elif not start.order < end.order < reference.order:
+            elif not (
+                start.order < end.order and (not reference_required or end.order < reference.order)
+            ):
                 issues.append(
                     ReviewDiagnostic(
                         "comment_geometry_reversed",
@@ -616,4 +802,12 @@ def _project_anchor(
         digest,
         ReviewCoverage.INCOMPLETE if issues else ReviewCoverage.COMPLETE,
         tuple(issues),
+        "explicit" if not issues else None,
+        spans if not issues else (),
+        not issues
+        and all(
+            marker.paragraph is not None
+            and marker.paragraph.geometry.story_kind in {"body", "table"}
+            for marker in markers
+        ),
     )

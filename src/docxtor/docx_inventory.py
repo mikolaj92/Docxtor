@@ -261,7 +261,8 @@ def _content_type_for(name: str, content_types: dict[str, str]) -> str:
     direct = content_types.get(name)
     if direct:
         return direct
-    suffix = PurePosixPath(name).suffix.lower()
+    _, separator, extension = PurePosixPath(name).name.rpartition(".")
+    suffix = f".{extension.lower()}" if separator else ""
     return content_types.get(f"*{suffix}", "application/octet-stream")
 
 
