@@ -11,11 +11,10 @@ from .docx_publication_marks import write_publication_bytes
 
 
 class DocxCreationError(ValueError):
-    """The created DOCX has incomplete inventory coverage."""
+    pass
 
 
 def create_docx_from_paragraphs(paragraphs: Iterable[str]) -> bytes:
-    """Create one paragraph per string and return completely inventoried DOCX bytes."""
     document = Document()
     for text in paragraphs:
         document.add_paragraph(text)
