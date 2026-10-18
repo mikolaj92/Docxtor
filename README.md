@@ -8,7 +8,7 @@ round-trips across plain text files, DOCX files, and text-layer PDFs.
 
 ## Status
 
-Early library. The public API exports 216 names. The public API is not stable yet.
+Early library. The public API exports 219 names. The public API is not stable yet.
 
 ## Public API
 
@@ -20,7 +20,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | Document types and loading | `DOCX_MIME`, `MD_MIME`, `PDF_MIME`, `TXT_MIME`, `DocumentBytes`, `DocumentError`, `DocumentKind`, `DetectedDocumentType`, `detect_document_type`, `document_to_bytes`, `load_document`, `PdfDocument`, `PdfExtractionMode`, `PlainTextDocument` |
 | DOCX text and inline editing | `AddressableComment`, `AddressableSpan`, `DocxDocument`, `InlineSegment`, `InlineSegmentKind`, `SegmentReplacement`, `SpanRole`, `TextSegment`, `UnsupportedRevisionError`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline` |
 | Paragraph and run locators | `ParagraphLocator`, `ParagraphResolution`, `RunLocator`, `RunResolution` |
-| Comment mutations | `CommentScopeBookmark`, `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange` |
+| Comment mutations | `CommentScopeBookmark`, `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange`, `CommentReplyResult`, `append_comment_reply` |
 | Document comparison | `compare_docx_documents`, `BlockPair`, `CommentAnchor`, `CommentChange`, `CommentChangeStatus`, `ComparisonCoverage`, `ComparisonDiagnostic`, `DiagnosticSeverity`, `DocumentBlock`, `DocumentComment`, `DocumentSpan`, `DocumentView`, `DocxDocumentComparison`, `FormattingChange`, `FormattingSpan`, `RevisionEvent`, `RevisionEventStatus`, `RevisionReference`, `RevisionResolutionEvidence`, `TextAnchor`, `TextChange`, `TextChangeKind` |
 | Cross-reference diagnostics | `DOCX_CROSS_REFERENCE_PROFILE_ID`, `CrossReferenceDiagnostic`, `CrossReferenceReport`, `CrossReferenceSeverity`, `diagnose_docx_cross_references` |
 | Mechanical facts and structural comparison | `ChangeKind`, `ContainerCoordinate`, `DocxComparison`, `DocxFactsSnapshot`, `DocxStructureSnapshot`, `FactChange`, `FactDiagnostic`, `FactsCoverage`, `NamedFact`, `PageBreakFact`, `PageLayoutFacts`, `ParagraphFact`, `RelationshipFact`, `StoryFact`, `TransformPolicy`, `UnreadablePartFact`, `compare_docx`, `docx_facts` |
@@ -31,7 +31,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | Package reading and publication primitives | `DEFAULT_PACKAGE_LIMITS`, `PackageEntry`, `PackageError`, `PackageLimits`, `normalize_docx_timestamps`, `parse_package_xml`, `read_package_entries`, `restore_semantically_unchanged_xml_parts`, `write_package_atomically` |
 | Package comparison | `PackageChangeReport`, `PackagePartChange`, `PackagePartChangeKind`, `compare_docx_packages` |
 | Core keyword properties | `read_core_keywords`, `remove_core_keyword_values`, `set_core_keywords` |
-| Publication receipts | `PublishError`, `PublishReceipt` |
+| Publication receipts | `PublishError`, `PublishReceipt`, `publish_docx` |
 | Physical review geometry | `PhysicalCommentAnchor`, `PhysicalCommentRange`, `PhysicalCommentSpan`, `PhysicalParagraphGeometry`, `PhysicalReviewGeometry`, `PhysicalTextOrigin`, `PhysicalTextInsertion`, `physical_span_for_semantic_range`, `project_docx_review_geometry`, `add_physical_comment_bytes`, `add_physical_comment_regions_bytes` |
 | Review markup inventory and batches | `inventory_review_markup`, `CommentRevisionAssociation`, `OperationReceipt`, `OperationStatus`, `ReviewBatchReceipt`, `ReviewCoverage`, `ReviewDiagnostic`, `ReviewMarkupInventory`, `ReviewCommand`, `ReviewTransactionError`, `apply_review_batch` |
 | Revision mutations | `RevisionAuthor`, `RevisionMutationError`, `RevisionMutationResult`, `RevisionPosition`, `RevisionRange` |
@@ -70,9 +70,7 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.1
 ```
 
-Pin the current release tag `v0.19.1` (matching `pyproject.toml`). For the
-feature history of earlier releases, see the git tags and `docs/releases/`.
-Avoid `v0.4.1`: it shipped version `0.4.0`; `v0.4.4` corrected the pin.
+Pin release tag `v0.19.1`, matching `pyproject.toml`.
 
 ## Basic Usage
 
@@ -193,15 +191,23 @@ User-authored footnotes and endnotes are mechanical stories with stable
 `footnote:{id}:p:{n}` and `endnote:{id}:p:{n}` ids. Separator and continuation-
 separator notes are not user segments, and missing note parts are never created.
 
-Word comment bodies are addressable as `comment:{id}:p:{n}` segments and through
-`document.comments`. Each `AddressableComment` carries the comment id, body text,
-author/initials/date, the story locator and anchored range text when present, and
-`parent_id` for replies named by `commentsExtended.xml`. Replacing comment text
-writes into the existing comment paragraphs and keeps comment IDs, range anchors,
-authorship attributes, and thread sidecar parts (`commentsExtended.xml`,
-`commentsIds.xml`, `people.xml`). Empty comment parts and separator-only notes do
-not become user-authored segments. Unknown comment targets fail before any edit.
-ReviewKit remains responsible for review semantics.
+Comment segments use `comment:{id}:p:{n}`. `document.comments` exposes identities,
+text, authorship, anchors and native `parent_id`, including empty comment bodies.
+`append_comment_reply(data: bytes, parent_comment_id: str, text: str,
+author: CommentAuthor) -> CommentReplyResult` appends without updating a handle.
+The frozen result contains `data`, confirmed `reply`, `parent_id`, `receipt`,
+`coverage` and per-part `parts` dispositions with payload hashes.
+Multi-paragraph parents and nested replies use all comment paragraph identities.
+Existing bodies, anchors, metadata, links and `done` values remain unchanged;
+absent `done` stays absent. Appending never reopens or closes a thread.
+Docxtor allocates IDs, extends commentsExtended and supported commentsIds, and
+preserves people, foreign XML and byte-exact untouched OPC payloads, not ZIP bytes.
+Empty text, unknown/duplicate identities, orphan links, cycles, conflicting
+relationships, malformed XML and commentsExtensible representations fail closed.
+IDs identify only these input bytes; they do not establish another snapshot's origin.
+Publish with `publish_docx(result.data, destination, source=data)`; its receipt
+hash identifies final file bytes, independently of mutation input/output hashes.
+Failure before atomic replacement leaves an existing destination unchanged.
 
 ### Package and combined transactions
 
@@ -366,17 +372,11 @@ uv run pytest
 
 MIT
 
-## Sole mechanical DOCX layer
+## Neutral Word review markup
 
-`SegmentReplacement` targets a `container_id` with optional `start_offset` and
-`end_offset`, or a nested `span_id`. `apply_replacements(..., strict=True)` raises
-on unknown targets or bad offsets. Consumers delegate physical OOXML edits here.
-
-### Neutral Word review markup
-
-Docxtor owns the physical OOXML mechanics for comments and tracked changes. It
-stays domain-blind: the caller supplies exact locators, ranges, author identity,
-and the accept/reject decision.
+`SegmentReplacement` targets a `container_id` with offsets, or a nested `span_id`.
+Strict replacements reject unknown targets and invalid offsets. Callers supply
+locators, ranges, authorship and revision decisions; Docxtor owns physical edits.
 
 Both renderers take `source` as a DOCX path (`str` or `Path`) or `bytes`, take
 `output` as the destination path, and return the published `Path`.

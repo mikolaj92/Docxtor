@@ -17,6 +17,8 @@ from docxtor import (
     RevisionAuthor,
     RevisionPosition,
     RevisionRange,
+    append_comment_reply,
+    publish_docx,
 )
 from docxtor.docx_review_inventory import inventory_review_markup
 from docxtor.docx_review_models import OperationStatus, ReviewCoverage
@@ -74,12 +76,16 @@ def test_publish_preserves_existing_target_on_validator_failure(tmp_path: Path) 
     path.write_bytes(_docx())
     original = path.read_bytes()
     document = DocxDocument.open(path)
+    added = document.add_comment(
+        CommentRange("body:p:0", 0, 5), "Parent", CommentAuthor("Reviewer")
+    )
+    result = append_comment_reply(added.data, "0", "Reply", CommentAuthor("Editor"))
 
     def reject(_path: Path) -> None:
         raise ValueError("rejected")
 
     with pytest.raises(PublishError, match="rejected"):
-        document.publish(validators=(reject,))
+        publish_docx(result.data, path, source=added.data, validators=(reject,))
     assert path.read_bytes() == original
 
 
@@ -87,7 +93,14 @@ def test_publish_returns_receipt_and_normalizes_zip_timestamps(tmp_path: Path) -
     destination = tmp_path / "published.docx"
     destination.write_bytes(_docx())
     document = DocxDocument.open(destination)
-    receipt = document.publish()
+    added = document.add_comment(
+        CommentRange("body:p:0", 0, 5), "Parent", CommentAuthor("Reviewer")
+    )
+    result = append_comment_reply(added.data, "0", "Reply", CommentAuthor("Editor"))
+    assert result.receipt.before_sha256 == sha256(added.data).hexdigest()
+    assert result.receipt.after_sha256 == sha256(result.data).hexdigest()
+    receipt = publish_docx(result.data, destination, source=added.data)
+    assert DocxDocument.open(destination).comments[-1] == result.reply
     assert receipt.destination == destination
     assert receipt.size == destination.stat().st_size
     assert receipt.sha256 == sha256(destination.read_bytes()).hexdigest()
@@ -178,9 +191,7 @@ def test_update_comment_preflight_failure_returns_no_partial_bytes() -> None:
     )
     digest = sha256(document.to_bytes()).hexdigest()
     with pytest.raises(CommentMutationError, match="changed"):
-        document.update_comment(
-            added.receipt.created_ids[0], "Revised", expected_text="stale"
-        )
+        document.update_comment(added.receipt.created_ids[0], "Revised", expected_text="stale")
     with pytest.raises(CommentMutationError, match="unknown comment ID"):
         document.update_comment("999", "Revised")
     with pytest.raises(CommentMutationError, match="must not be empty"):

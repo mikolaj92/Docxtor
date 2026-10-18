@@ -28,6 +28,8 @@ from .docx_comment_mutations import (
     CommentMutationError,
     CommentMutationResult,
     CommentRange,
+    CommentReplyResult,
+    append_comment_reply,
 )
 from .docx_compare import compare_docx_documents
 from .docx_compare_models import (
@@ -147,7 +149,7 @@ from .docx_properties import (
     remove_core_keyword_values,
     set_core_keywords,
 )
-from .docx_publish import PublishError, PublishReceipt
+from .docx_publish import PublishError, PublishReceipt, publish_docx
 from .docx_review_cleanup import remove_all_comments_bytes
 from .docx_review_geometry import (
     PhysicalCommentAnchor,
@@ -293,6 +295,8 @@ __all__ = [
     "CommentMutationError",
     "CommentMutationResult",
     "CommentRange",
+    "CommentReplyResult",
+    "append_comment_reply",
     "PublishError",
     "DOCX_CROSS_REFERENCE_PROFILE_ID",
     "CrossReferenceDiagnostic",
@@ -304,6 +308,7 @@ __all__ = [
     "PackagePartChangeKind",
     "compare_docx_packages",
     "PublishReceipt",
+    "publish_docx",
     "AcceptRevisionsError",
     "RejectRevisionsError",
     "Revision",
