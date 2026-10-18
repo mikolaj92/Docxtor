@@ -103,6 +103,13 @@ output.data          # bytes
 Each replacement targets a stable segment identifier. Offset-based partial
 replacements are available when a whole segment should not be rewritten.
 
+### DOCX creation
+
+`create_docx_from_paragraphs(paragraphs)` accepts an `Iterable[str]`, creates
+one paragraph per string, and returns DOCX bytes. Incomplete inventory coverage
+of the created document raises `DocxCreationError`, a `ValueError` subclass,
+instead of returning bytes.
+
 ### Metadata inspection and sanitization
 
 ```python
@@ -336,14 +343,6 @@ doc.apply_replacements([
         start_offset=6,
         end_offset=12,
     )
-], strict=True)
-
-# Or replace a whole segment by its stable identifier
-doc.apply_replacements([
-    SegmentReplacement(
-        container_id="body:p:1",
-        text="New second paragraph",
-    ),
 ], strict=True)
 
 doc.save_docx("output.docx")
