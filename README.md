@@ -70,13 +70,6 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.1
 ```
 
-Pin the current release tag `v0.19.1` (matching `pyproject.toml`). For the
-feature history of earlier releases, see the git tags and `docs/releases/`.
-
-> Historical note only: tag `v0.4.1` still shipped distribution version
-> `0.4.0`; `v0.4.4` was the first correctly versioned stable-addressing pin.
-> Do not pin `v0.4.1`.
-
 ## Basic Usage
 
 ```python
@@ -105,13 +98,16 @@ replacements are available when a whole segment should not be rewritten.
 
 ### DOCX admission inspection
 
-Import `inspect_docx_admission`, `DocxAdmissionInspection`, and
-`DocumentPackageKind` from `docxtor`. `inspect_docx_admission(content: bytes)`
-returns a `DocxAdmissionInspection` with these fields:
+```python
+from docxtor import inspect_docx_admission, DocxAdmissionInspection, DocumentPackageKind
+```
+
+`inspect_docx_admission(content: bytes)` returns a `DocxAdmissionInspection`
+with these fields:
 
 - `package_kind`: `DocumentPackageKind.VALID` (`"valid"`) when
   `word/document.xml` is present, `ENCRYPTED` (`"encrypted"`) when an OLE
-  signature or encryption package parts are detected (taking precedence), or
+  signature or `EncryptedPackage`/`EncryptionInfo` parts are detected (taking precedence), or
   `INVALID` (`"invalid"`) otherwise. `VALID` does not guarantee full OOXML
   conformance.
 - `has_main_document`: whether `word/document.xml` is present.
@@ -121,10 +117,6 @@ returns a `DocxAdmissionInspection` with these fields:
   `None` when unavailable or invalid. It is not calculated by rendering.
 - `diagnostics`: a tuple of unreadable or unknown part names, including
   `<package>` when the input cannot be read as a package.
-
-Coverage decision (wontfix for #205): new `INVALID`/macro unit tests remain
-intentionally unaddressed because the user prohibits adding unit tests;
-one-off verification does not provide persistent test coverage.
 
 ### Complete package inventory
 
