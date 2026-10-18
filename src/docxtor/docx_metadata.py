@@ -1,20 +1,8 @@
-"""DOCX package metadata policy for anonymized artifacts.
+"""Inspect DOCX property text and rewrite selected package metadata.
 
-An anonymized DOCX is a public artifact, so its package properties must not
-carry identity from the source document.  The policy is deliberately
-lossy:
-
-* every value in ``docProps/core.xml`` is cleared, including creator,
-  last-modified-by, timestamps, revision, and descriptive properties;
-* every value in ``docProps/app.xml`` is cleared, including company and
-  manager; and
-* every other ``docProps/*`` part is removed, which covers custom properties
-  and thumbnails together with their package relationships.
-
-Archive restore is different by contract: it is an explicit, vault-backed
-operation that copies the original artifact and records a restore audit.  The
-anonymized and reinjected artifacts always pass through this policy; metadata
-is never restored implicitly during reinjection.
+Sanitization clears core/app XML text and tails, removes other docProps parts
+and matching package references, and rewrites existing Word review identities.
+Inspection covers docProps only; neither operation guarantees full anonymization.
 """
 
 from __future__ import annotations
@@ -35,7 +23,7 @@ _CONTENT_TYPES = "[Content_Types].xml"
 
 @dataclass(frozen=True, slots=True)
 class MetadataInspection:
-    """Safe-to-report metadata policy violations in a DOCX package."""
+    """Metadata findings; ``clean`` means the ``violations`` tuple is empty."""
 
     violations: tuple[str, ...] = ()
 
@@ -47,7 +35,7 @@ class MetadataInspection:
 def sanitize_docx_metadata(
     path: str | Path, *, review_author: str = "Reviewer", review_initials: str = "RV"
 ) -> None:
-    """Strip identifying and user-controlled metadata from a DOCX in place.
+    """Rewrite selected DOCX properties and review identities in place; return None.
 
     The rewrite is performed through a sibling temporary file and atomically
     replaced only after the complete package has been written.  Malformed XML
@@ -103,11 +91,11 @@ def sanitize_docx_metadata(
 
 
 def inspect_docx_metadata(path: str | Path) -> MetadataInspection:
-    """Return metadata policy violations without exposing metadata values.
+    """Inspect docProps without writing; return findings without metadata values.
 
-    The inspection intentionally reports only package part/element names.  A
-    processing report must not become a second channel through which source PII
-    is disclosed.
+    Element names come from input and may themselves contain sensitive data.
+    Word review authorship, attributes and full OOXML conformance are not checked.
+    Some unreadable inputs yield findings; other errors may propagate.
     """
     violations: list[str] = []
     try:
