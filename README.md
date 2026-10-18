@@ -70,6 +70,13 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.1
 ```
 
+Pin the current release tag `v0.19.1` (matching `pyproject.toml`). For the
+feature history of earlier releases, see the git tags and `docs/releases/`.
+
+> Historical note only: tag `v0.4.1` still shipped distribution version
+> `0.4.0`; `v0.4.4` was the first correctly versioned stable-addressing pin.
+> Do not pin `v0.4.1`.
+
 ## Basic Usage
 
 ```python
@@ -107,23 +114,16 @@ sanitize_docx_metadata("copy.docx", review_author="Reviewer", review_initials="R
 
 Both functions accept `str | Path`. Inspection does not write the file.
 `violations` is a tuple of messages; `clean` means that tuple is empty.
-Inspection checks non-whitespace element text in `docProps/core.xml` and
-`docProps/app.xml`, and flags other `docProps/` parts. Messages omit values,
-but element names come from input. Some unreadable inputs produce violations;
-other errors, including some corrupt ZIP errors, can raise exceptions.
-It does not check authorship in `word/`, all attributes, or full OOXML
-conformance. `clean` does not establish safety of the whole document.
+Inspection checks non-whitespace element text in `docProps/core.xml` and `docProps/app.xml`, and flags other `docProps/` parts.
+Messages omit values, but element names come from input. Some unreadable inputs produce violations; other errors, including some corrupt ZIP errors, can raise exceptions.
+Inspection excludes authorship in `word/`, some attributes, and full OOXML conformance. `clean` does not establish whole-document safety.
 
-Sanitization changes the file in place and returns `None`. It clears XML text
-and tails in core/app, removes other `docProps/` parts, and removes matching
-root package relationships and content-type overrides. In `word/` XML, it
-replaces existing `author` attributes on `comment`, `ins`, `del`, and `person`,
-and existing comment `initials`; it removes `person` `userId`/`providerId`.
-Defaults are `review_author="Reviewer"` and `review_initials="RV"`; absent
-attributes are not added. The complete ZIP is written to a sibling temporary
-file before atomic replacement. Malformed XML encountered during sanitization
-raises before replacement, leaving the input unchanged and removing the
-temporary file. This is not full anonymization.
+Sanitization changes the file in place and returns `None`. It clears XML text and tails in core/app.
+It removes other `docProps/` parts and matching root package relationships and content-type overrides.
+In `word/` XML, it replaces existing `author` attributes on `comment`, `ins`, `del`, and `person`, and existing comment `initials`; it removes `person` `userId`/`providerId`.
+Defaults are `review_author="Reviewer"` and `review_initials="RV"`; absent attributes are not added.
+The complete ZIP is written to a sibling temporary file before atomic replacement.
+Malformed XML during sanitization raises before replacement, preserving the input and removing the temporary file. This is not full anonymization.
 
 ### Complete package inventory
 
