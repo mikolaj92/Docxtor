@@ -72,10 +72,7 @@ uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.1
 
 Pin the current release tag `v0.19.1` (matching `pyproject.toml`). For the
 feature history of earlier releases, see the git tags and `docs/releases/`.
-
-> Historical note only: tag `v0.4.1` still shipped distribution version
-> `0.4.0`; `v0.4.4` was the first correctly versioned stable-addressing pin.
-> Do not pin `v0.4.1`.
+Avoid `v0.4.1`: it shipped version `0.4.0`; `v0.4.4` corrected the pin.
 
 ## Basic Usage
 
@@ -137,8 +134,10 @@ Malformed XML during sanitization raises before replacement, preserving the inpu
 `DocxDocument.inventory()` enumerates every ZIP/OPC member, including orphan
 parts that `python-docx` cannot reach through relationships. It exposes neutral
 `DocumentSurface` records for XML text, XML attributes, and relationship targets.
-Each surface has a stable ID, value hash, visibility, and mechanical capability
-such as `value_replace` or `preserve_only`.
+Each surface has a stable ID, value hash, visibility, and mechanical capability.
+Qualified context uses `element_qname` and `attribute_qname` (namespace-qualified
+XML names), `ancestor_qnames` (root-to-parent names), and a mechanical `role`.
+`locator_version` identifies the locator scheme (`docxtor-surface-v1`).
 
 `inventory()`, `facts()`, and `apply_surface_replacements()` read the current
 in-memory XML, including prior text replacements, while retaining orphan parts
@@ -146,35 +145,15 @@ and their content types. The original opening bytes remain the publication
 source. Surface mutations return verified bytes in `result.data`; they do not
 update the document instance.
 
-```python
-from docxtor import DocxDocument, InventoryCoverage
-
-document = DocxDocument.open("input.docx")
-inventory = document.inventory()
-if inventory.coverage is not InventoryCoverage.COMPLETE:
-    raise RuntimeError(
-        f"uncovered DOCX parts: {inventory.unknown_parts + inventory.unreadable_parts}"
-    )
-
-for surface in inventory.surfaces:
-    print(surface.surface_id, surface.kind, surface.capability)
-```
-
-Docxtor reports physical values and capabilities only. It does not decide
-whether a value is PII, legally relevant, or review content. Consumers must
-fail closed when their policy requires complete coverage.
+`inventory.coverage` is `InventoryCoverage.COMPLETE` only when no parts are
+unknown or unreadable; `unknown_parts` and `unreadable_parts` identify gaps.
+Consumers must reject incomplete coverage when their policy requires it.
+Docxtor reports physical facts, not PII, legal relevance, or review meaning.
 
 Exact `SurfaceReplacement` mutations require the value hash observed during
 inventory. Docxtor reopens the output and returns a disposition for every
 requested surface. Unknown targets, stale hashes, preserve-only surfaces, and
 unconfirmed writes fail before partial output is returned.
-
-For consumers that implement higher-level review grammar, Docxtor also exposes
-safe neutral package primitives: `read_package_entries`,
-`write_package_atomically`, `normalize_docx_timestamps`, and
-`restore_semantically_unchanged_xml_parts`. They validate OPC member names,
-duplicates, archive expansion limits, XML syntax and DOCTYPE before publishing
-an output. These APIs do not interpret revisions, comments, PII, or law.
 
 ```python
 from docxtor import SurfaceReplacement
@@ -224,6 +203,71 @@ authorship attributes, and thread sidecar parts (`commentsExtended.xml`,
 not become user-authored segments. Unknown comment targets fail before any edit.
 ReviewKit remains responsible for review semantics.
 
+### Package and combined transactions
+
+`apply_package_transaction(data, mutations, *, validators=(),
+require_complete_coverage=True)` transforms DOCX bytes in memory, without writing
+files. `PackageMutation` requires a unique `operation_id`, `kind`, `target_id`,
+and `expected_sha256`; optional fields are `value`, `cascade`, and `content_type`.
+`content_type` is currently unused. `PackageMutationKind` supports
+`REPLACE_SURFACE` (string value), `REMOVE_SURFACE`, `REMOVE_RELATIONSHIP`,
+`REPLACE_PART` (bytes value), and `REMOVE_PART`. Surface/relationship targets use
+`surface_id` and `value_sha256`; part targets use `name` and `sha256`.
+Removing a part with incoming relationships requires `cascade=True`, which also
+removes those links; part removal cleans its relationship part and type override.
+
+Hashes must match the source inventory. Complete inventory coverage is required
+before and after by default. `PackageMutationError` reports rejected mutations,
+incomplete coverage, unexpected changes, or unconfirmed operations; package-read
+and validator errors can propagate separately. No receipt or intermediate result
+is returned on error. Validators receive the complete package receipt before return.
+`PackageTransactionReceipt` contains `data`, `inventory_before`, `inventory_after`,
+`operations`, `surfaces`, `parts`, and the derived `unexpected` dispositions.
+
+`apply_docx_transaction(data, *, text_targets=(), package_mutations=(),
+validators=(), require_complete_coverage=True)` applies strict text replacements
+first. Its package stage checks hashes and inventories against the post-text state.
+`CombinedTransactionReceipt` contains `data`, normalized `text_targets`, and
+`package` (the package receipt). Neither function updates an existing handle.
+
+This example requires `input.docx` with a nonempty creator property and a text
+segment. The two variants independently use the same original bytes; changing
+body text leaves the selected metadata surface unchanged.
+
+```python
+from docxtor import (
+    DocxDocument, PackageMutation, PackageMutationKind, SegmentReplacement,
+    apply_docx_transaction, apply_package_transaction,
+)
+
+document = DocxDocument.open("input.docx")
+data = document.to_bytes()
+inventory = document.inventory()
+author = next(s for s in inventory.surfaces if s.part_name == "docProps/core.xml"
+              and s.element_qname == "{http://purl.org/dc/elements/1.1/}creator")
+mutation = PackageMutation(
+    "replace-author", PackageMutationKind.REPLACE_SURFACE,
+    author.surface_id, author.value_sha256, value=author.value + " (edited)",
+)
+receipt = apply_package_transaction(data, [mutation])
+assert not receipt.unexpected
+package_bytes = receipt.data
+
+segment = next(s for s in document.segments if s.text)
+receipt = apply_docx_transaction(
+    data,
+    text_targets=[SegmentReplacement(container_id=segment.container_id, text="Updated text")],
+    package_mutations=[mutation],
+)
+combined_bytes = receipt.data
+assert not receipt.package.unexpected
+```
+
+For atomic file publication, pass `read_package_entries(receipt.data)` to
+`write_package_atomically(destination, entries)`. It validates a sibling temporary
+file, runs an optional `validate(path)` callback, then atomically replaces the
+destination; failure before replacement preserves the existing destination.
+
 ### Text search across runs
 
 `DocxDocument.find_text()` finds overlapping exact matches across Word run
@@ -243,9 +287,7 @@ match = document.find_text("thirty days", match="normalized")[0]
 document.replace_match(match, "business days")
 ```
 
-Search does not span paragraph boundaries or choose among matches on the
-caller's behalf. Use the returned match list and explicit paragraph coordinates
-to make that choice.
+Search stays within paragraphs; callers choose matches and paragraph coordinates.
 
 ### Typed paragraph and run locators
 
@@ -326,51 +368,9 @@ MIT
 
 ## Sole mechanical DOCX layer
 
-Example with offsets (similar to `WriteTarget` style used in Temida/Posejdon):
-
-```python
-from docxtor import DocxDocument, SegmentReplacement
-
-doc = DocxDocument.open("input.docx")
-
-print([s.container_id for s in doc.segments])
-
-# Partial replacement inside a segment (character offsets)
-doc.apply_replacements([
-    SegmentReplacement(
-        container_id="body:p:0",
-        text="REDACTED",
-        start_offset=6,
-        end_offset=12,
-    )
-], strict=True)
-
-doc.save_docx("output.docx")
-```
-
-```text
-['body:p:0', 'body:p:1', 'header:0:p:0', ...]
-```
-
-`apply_replacements(..., strict=True)` raises on unknown targets or bad offsets.
-
-Example with nested revision / hyperlink spans:
-
-```python
-from docxtor import DocxDocument, SegmentReplacement, UnsupportedRevisionError
-
-doc = DocxDocument.open("input.docx")
-for span in doc.spans:
-    print(span.span_id, span.role, span.text)
-    # body:p:0:span:1 insertion Alice
-    # body:p:0:span:3 hyperlink contract
-
-doc.apply_replacements(
-    [SegmentReplacement(span_id="body:p:0:span:1", text="Alina")],
-    strict=True,
-)
-```
-
+`SegmentReplacement` targets a `container_id` with optional `start_offset` and
+`end_offset`, or a nested `span_id`. `apply_replacements(..., strict=True)` raises
+on unknown targets or bad offsets. Consumers delegate physical OOXML edits here.
 
 ### Neutral Word review markup
 
