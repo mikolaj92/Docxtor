@@ -103,6 +103,28 @@ output.data          # bytes
 Each replacement targets a stable segment identifier. Offset-based partial
 replacements are available when a whole segment should not be rewritten.
 
+### Metadata inspection and sanitization
+
+```python
+from docxtor import MetadataInspection, inspect_docx_metadata, sanitize_docx_metadata
+
+report: MetadataInspection = inspect_docx_metadata("copy.docx")
+sanitize_docx_metadata("copy.docx", review_author="Reviewer", review_initials="RV")
+```
+
+Both functions accept `str | Path`. Inspection does not write the file.
+`violations` is a tuple of messages; `clean` means that tuple is empty.
+Inspection checks non-whitespace element text in `docProps/core.xml` and `docProps/app.xml`, and flags other `docProps/` parts.
+Messages omit values, but element names come from input. Some unreadable inputs produce violations; other errors, including some corrupt ZIP errors, can raise exceptions.
+Inspection excludes authorship in `word/`, some attributes, and full OOXML conformance. `clean` does not establish whole-document safety.
+
+Sanitization changes the file in place and returns `None`. It clears XML text and tails in core/app.
+It removes other `docProps/` parts and matching root package relationships and content-type overrides.
+In `word/` XML, it replaces existing `author` attributes on `comment`, `ins`, `del`, and `person`, and existing comment `initials`; it removes `person` `userId`/`providerId`.
+Defaults are `review_author="Reviewer"` and `review_initials="RV"`; absent attributes are not added.
+The complete ZIP is written to a sibling temporary file before atomic replacement.
+Malformed XML during sanitization raises before replacement, preserving the input and removing the temporary file. This is not full anonymization.
+
 ### Complete package inventory
 
 `DocxDocument.inventory()` enumerates every ZIP/OPC member, including orphan
@@ -296,28 +318,6 @@ uv run pytest
 MIT
 
 ## Sole mechanical DOCX layer
-
-**Docxtor is the single source of truth for mechanical DOCX manipulation.**
-
-It owns:
-- stable addressing (`container_id`, global `paragraph_index` counting empties)
-- rich decomposition (`InlineSegment` with text + opaque, `rpr`, original element)
-- pure offset primitives (internal helpers; the public surface is `SegmentReplacement` sub-range offsets via `apply_replacements`)
-- mutation (`apply_targets`, `apply_replacements`, `replace_placeholder`)
-- access and rebuild (`get_inline_segments`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline`)
-
-Reviewkit (and Dike via it) delegates base paragraph/run/offset work to Docxtor and only layers review semantics (tracked changes as decision trace, comments, `apply_to_corrected`, `RenderIntegrityError`, policy, purity).
-
-Temida consumers (posejdon_docs, dike_docs, anonimizator3000, ...) are thin adapters or high-level users. They contain **no** custom run splitting, offset math, or paragraph-mutation logic.
-
-Docxtor 0.3.0+ uses `python-docx`, a third-party library, as its internal DOCX engine.
-
-Key features:
-- Stable `container_id` (e.g. `"body:p:0"`, `"header:0:p:0"`, `"table:0:r:0:c:0:p:0"`, `"txbx:0:p:0"`) and `paragraph_index`.
-- `SegmentReplacement` for structured edits (full segment or sub-range by character offsets).
-- `apply_replacements(..., strict=True)` — fail-closed on unknown targets or bad offsets.
-- Partial replacements via `apply_replacements` update existing `w:t` text nodes without splitting `w:r` runs or creating new formatting boundaries; intermediate text nodes may remain empty.
-- Structured `SegmentReplacement` records and `apply_replacements(..., strict=True)` are the canonical DOCX editing path.
 
 Example with offsets (similar to `WriteTarget` style used in Temida/Posejdon):
 
