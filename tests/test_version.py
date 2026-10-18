@@ -28,7 +28,6 @@ def test_package_version_is_ahead_of_mismatched_tag() -> None:
 
 
 def test_readme_documents_public_api_size() -> None:
-    """README must document the actual public API size."""
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     status = readme.split("\n## Status\n", 1)[1].split("\n## ", 1)[0]
     counts = re.findall(r"The public API exports ([0-9]+) names\.", status)

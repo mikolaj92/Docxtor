@@ -1,10 +1,3 @@
-"""Inspect DOCX property text and rewrite selected package metadata.
-
-Sanitization clears core/app XML text and tails, removes other docProps parts
-and matching package references, and rewrites existing Word review identities.
-Inspection covers docProps only; neither operation guarantees full anonymization.
-"""
-
 from __future__ import annotations
 
 import os
@@ -23,8 +16,6 @@ _CONTENT_TYPES = "[Content_Types].xml"
 
 @dataclass(frozen=True, slots=True)
 class MetadataInspection:
-    """Metadata findings; ``clean`` means the ``violations`` tuple is empty."""
-
     violations: tuple[str, ...] = ()
 
     @property
@@ -35,12 +26,6 @@ class MetadataInspection:
 def sanitize_docx_metadata(
     path: str | Path, *, review_author: str = "Reviewer", review_initials: str = "RV"
 ) -> None:
-    """Rewrite selected DOCX properties and review identities in place; return None.
-
-    The rewrite is performed through a sibling temporary file and atomically
-    replaced only after the complete package has been written.  Malformed XML
-    raises instead of leaving an unproven artifact in place.
-    """
     source = Path(path)
     with ZipFile(source) as archive:
         members = [(info, archive.read(info.filename)) for info in archive.infolist()]
@@ -91,12 +76,6 @@ def sanitize_docx_metadata(
 
 
 def inspect_docx_metadata(path: str | Path) -> MetadataInspection:
-    """Inspect docProps without writing; return findings without metadata values.
-
-    Element names come from input and may themselves contain sensitive data.
-    Word review authorship, attributes and full OOXML conformance are not checked.
-    Some unreadable inputs yield findings; other errors may propagate.
-    """
     violations: list[str] = []
     try:
         with ZipFile(path) as archive:
