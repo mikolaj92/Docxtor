@@ -281,6 +281,8 @@ def _collect_comments(
             texts.append(text)
             if bridge is None or paragraph is not bridge.paragraph:
                 user_texts.append(text)
+        if not texts:
+            continue
         locator, anchor_text = anchors.get(comment_id, (None, ""))
         region_set_id, region_set_size = region_metadata(comment_elm)
         comments.append(

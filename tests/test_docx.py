@@ -1080,7 +1080,7 @@ def test_package_root_does_not_export_private_helpers() -> None:
 
 
 def test_package_root_does_not_export_byte_level_review_mutations() -> None:
-    """Legacy comment and revision writes remain handle-only."""
+    """Comment, revision, and publish writes are public only on DocxDocument."""
     import docxtor
 
     leaked = sorted(
@@ -1093,6 +1093,7 @@ def test_package_root_does_not_export_byte_level_review_mutations() -> None:
             "delete_revision",
             "insert_revision",
             "mark_paragraph_revision",
+            "publish_docx",
             "remove_comments",
             "replace_revision",
             "update_comment",

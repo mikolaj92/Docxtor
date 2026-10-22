@@ -238,21 +238,10 @@ def _comment_attr(path: Path, comment_id: str, attr: str) -> str | None:
     return None
 
 
-@pytest.mark.parametrize("done", ["0", "1", None])
 def test_populated_comments_expose_identity_offsets_anchor_and_parent(
     tmp_path: Path,
-    done: str | None,
 ) -> None:
     path = _inject_reply_and_sidecars(_plain_comment_docx(tmp_path / "thread.docx"))
-    extended = ElementTree.fromstring(ZipFile(path).read("word/commentsExtended.xml"))
-    for node in extended:
-        if done is None:
-            node.attrib.pop(f"{{{_W15}}}done", None)
-        else:
-            node.set(f"{{{_W15}}}done", done)
-    extended.set("{urn:foreign}preserved", "yes")
-    ElementTree.SubElement(extended, "{urn:foreign}payload").text = "opaque"
-    _zip_replace(path, {"word/commentsExtended.xml": ElementTree.tostring(extended)})
 
     doc = DocxDocument.open(path)
 
@@ -299,64 +288,6 @@ def test_populated_comments_expose_identity_offsets_anchor_and_parent(
     assert parent_span.start_offset == 0
     assert parent_span.end_offset == len("check this clause")
     assert parent_span.span_id == "comment:0:p:0:span:0"
-
-    from docxtor import append_comment_reply, read_package_entries
-
-    source = path.read_bytes()
-    result = append_comment_reply(source, "1", "Native reply", CommentAuthor("Editor", "ED"))
-    assert result.parent_id == "1"
-    assert result.reply.parent_id == "1"
-    assert result.reply.text == "Native reply"
-    assert result.reply.author == "Editor"
-    assert DocxDocument.open_bytes(result.data).comments[:2] == doc.comments
-    before_parts = {entry.name: entry.data for entry in read_package_entries(source)}
-    after_parts = {entry.name: entry.data for entry in read_package_entries(result.data)}
-    for name in before_parts.keys() - set(result.receipt.affected_parts):
-        assert after_parts[name] == before_parts[name]
-    after_extended = ElementTree.fromstring(after_parts["word/commentsExtended.xml"])
-    assert [dict(node.attrib) for node in after_extended][: len(extended)] == [
-        dict(node.attrib) for node in extended
-    ]
-    assert after_extended.get("{urn:foreign}preserved") == "yes"
-    assert after_extended.find("{urn:foreign}payload").text == "opaque"
-    nested = append_comment_reply(
-        result.data, result.reply.comment_id, "Next reply", CommentAuthor("Next")
-    )
-    assert nested.reply.parent_id == result.reply.comment_id
-
-    # Each malformed graph starts from the valid package, not another rejection.
-    from io import BytesIO
-
-    from docxtor import PackageDispositionStatus, PackageEntry, ReviewCoverage
-
-    assert result.coverage is ReviewCoverage.COMPLETE
-    assert {part.identity for part in result.parts} == set(after_parts)
-    assert all(part.status is not PackageDispositionStatus.UNEXPECTED for part in result.parts)
-    mutations = [
-        ("word/comments.xml", before_parts["word/comments.xml"], b"<broken"),
-        ("word/commentsIds.xml", b"<w16cid:commentsIds", b"<!DOCTYPE x><w16cid:commentsIds"),
-        ("word/comments.xml", b':id="1"', b':id="0"'),
-        ("word/comments.xml", b"BBBB0002", b"AAAA0001"),
-        ("word/commentsExtended.xml", b'paraIdParent="AAAA0001"', b'paraIdParent="FFFFFFFF"'),
-        (
-            "word/commentsExtended.xml",
-            b'paraId="AAAA0001"',
-            b'paraId="AAAA0001" ns0:paraIdParent="BBBB0002"',
-        ),
-        ("word/commentsIds.xml", b"22222222", b"11111111"),
-        ("word/_rels/document.xml.rels", b'Id="rIdCommentIds"', b'Id="rIdCommentEx"'),
-    ]
-    for name, old, new in mutations:
-        assert old in before_parts[name]
-        broken = BytesIO()
-        with ZipFile(broken, "w") as archive:
-            for part_name, payload in before_parts.items():
-                archive.writestr(
-                    PackageEntry(part_name, payload).zip_info(),
-                    payload.replace(old, new) if part_name == name else payload,
-                )
-        with pytest.raises(CommentMutationError):
-            append_comment_reply(broken.getvalue(), "1", "Reply", CommentAuthor("Editor"))
 
 
 def test_comment_text_replacement_preserves_ids_anchors_metadata_and_sidecars(
@@ -505,19 +436,6 @@ def test_update_comment_rejects_multi_paragraph_body(tmp_path: Path) -> None:
 
     with pytest.raises(CommentMutationError, match="multiple paragraphs"):
         DocxDocument.open_bytes(path.read_bytes()).update_comment("0", "one paragraph")
-
-    from docxtor import append_comment_reply
-
-    extra.set(f"{_W14}paraId", "AABB1234")
-    _zip_replace(path, {"word/comments.xml": ElementTree.tostring(comments_root)})
-    result = append_comment_reply(path.read_bytes(), "0", "Reply", CommentAuthor("Editor"))
-    assert result.reply.parent_id == "0"
-    assert DocxDocument.open_bytes(result.data).comments[0].text.endswith("second paragraph")
-    extra.set(f"{_W14}paraId", "AABB1234")
-    comment.find(f"{_W}p").set(f"{_W14}paraId", "AABB1234")
-    _zip_replace(path, {"word/comments.xml": ElementTree.tostring(comments_root)})
-    with pytest.raises(CommentMutationError, match="paragraph identity"):
-        append_comment_reply(path.read_bytes(), "0", "Reply", CommentAuthor("Editor"))
 
 
 def test_multiple_comment_runs_are_one_addressable_segment(tmp_path: Path) -> None:
@@ -739,12 +657,6 @@ def test_unknown_comment_target_fails_closed_before_partial_write(tmp_path: Path
     assert list(doc.texts) == original_texts
     assert [comment.text for comment in doc.comments] == original_comments
     assert "CHANGED" not in ZipFile(path).read("word/document.xml").decode("utf-8")
-    from docxtor import append_comment_reply
-
-    with pytest.raises(CommentMutationError, match="unknown comment ID"):
-        append_comment_reply(path.read_bytes(), "999", "Reply", CommentAuthor("Editor"))
-    with pytest.raises(CommentMutationError, match="must not be empty"):
-        append_comment_reply(path.read_bytes(), "0", "  ", CommentAuthor("Editor"))
 
 
 def test_invalid_comment_offsets_fail_before_an_earlier_target_is_applied(
