@@ -125,10 +125,9 @@ document = DocxDocument.open(working_copy)
 
 `flatten_link_fields(path)` accepts `str | Path` and writes back to that same
 path. `True` means the package was rewritten, not that it passed validation.
-`False` means no supported change was found: no file is written, and the package
-remains byte-for-byte identical. A changed ZIP is written completely to a sibling
-temporary file, then published with `os.replace`; temporary files are cleaned up
-on failure. Rewritten packages need not be byte-identical to their inputs.
+`False` means no supported change was found: no write occurs, preserving exact
+source bytes. Changed packages are written to a sibling temporary ZIP, then
+published with `os.replace`; failure cleans up the temporary file.
 
 The operation handles `word/document.xml`, `word/header*.xml`, and
 `word/footer*.xml`. It flattens simple and non-nested, complete complex
@@ -151,9 +150,8 @@ This is not a general link remover or package validator. It does not flatten
 nested or unmatched complex fields, opaque field switches without a recognized
 URI, DrawingML click/hover links, VML links, linked images, attached templates,
 or orphan external relationships. Other stories, such as footnotes and comments,
-are outside this operation's scope. Parser checks can still reject the result.
-Neither boolean result replaces later parser validation or establishes package
-safety or full OOXML conformance.
+are outside this operation's scope. Neither boolean result replaces parser
+validation or establishes package safety or full OOXML conformance.
 
 ### Metadata inspection and sanitization
 
