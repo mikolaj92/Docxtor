@@ -107,47 +107,6 @@ one paragraph per string, and returns DOCX bytes. Incomplete inventory coverage
 of the created document raises `DocxCreationError`, a `ValueError` subclass,
 instead of returning bytes.
 
-### `flatten_link_fields`
-
-```python
-from pathlib import Path
-from shutil import copyfile
-
-from docxtor import flatten_link_fields
-
-working_copy = Path("working-copy.docx")
-copyfile("input.docx", working_copy)
-rewritten = flatten_link_fields(working_copy)
-```
-
-`flatten_link_fields(path)` accepts `str | Path` and writes to that same path.
-Use a working copy when the original must remain available. `True` means the
-package was rewritten; `False` means no supported changes were found and no
-file was written. With no changes, the input remains byte-for-byte identical.
-Changed packages are written to a sibling temporary file, then published with
-`os.replace`; failure before replacement leaves the source unchanged.
-
-The operation flattens simple and non-nested, matched complex `HYPERLINK` / `LINK`
-fields whose instructions contain `mailto:`, `http://`, `https://`, `file:`, or
-`ftp://`, retaining their displayed results. It also unwraps relationship-backed
-`w:hyperlink` elements, retaining their children, and removes matching hyperlink
-relationships. These story edits cover `word/document.xml`, `word/header*.xml`,
-and `word/footer*.xml`, not footnotes, endnotes, or comments.
-
-In `customXml/*.xml`, it clears whole text, tail, and non-schema attribute values
-containing those URI forms. Namespace and schema identifiers remain intact.
-This is a targeted transformation, not removal of every possible link or URI.
-Internal TOC fields and hyperlinks without a relationship ID remain unchanged.
-Nested or unmatched complex fields, DrawingML links, VML links, linked images,
-attached templates, and orphan external relationships are not resolved.
-
-Malformed XML in a supported story raises before source replacement. Unreadable
-`customXml` XML is instead left unchanged, even if another part triggers a
-rewrite. Neither boolean result proves that the package is valid or free of
-links. Run the downstream parser and required validation after this operation;
-its result does not replace those checks or bypass their rejection of unsupported
-or unreadable content.
-
 ### Metadata inspection and sanitization
 
 ```python
