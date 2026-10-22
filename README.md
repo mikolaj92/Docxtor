@@ -122,10 +122,10 @@ copyfile("input.docx", working_copy)
 changed = flatten_link_fields(working_copy)
 ```
 
-Accepts `str` or `Path`. `True` means the package was rewritten; `False` means
-no supported change, no write, and byte-identical input. A changed ZIP is written
-to a sibling temporary file, then published with `os.replace`. Failure before
-replacement preserves the source and removes the temporary file.
+Accepts `str` or `Path`. Returns `True` after rewriting, or `False` without
+writing: the input stays byte-identical. Changes use a sibling temporary ZIP
+and `os.replace`; failure before replacement preserves the source and removes
+the temporary file.
 
 The operation handles `word/document.xml`, `word/header*.xml`, and
 `word/footer*.xml`. It flattens simple and non-nested, matched complex
@@ -143,9 +143,9 @@ attached templates, and orphan external relationships are not cleaned up.
 This is not general link removal or anonymization; displayed URLs can remain.
 
 Malformed document/header/footer XML raises before source replacement; unreadable
-`customXml` and malformed relationship XML remain unchanged. Neither return value
-certifies a valid or safe DOCX. Rewriting does not replace subsequent parser
-validation of unsupported links, unreadable XML, or other package problems.
+`customXml` and malformed relationship XML remain unchanged. Neither result
+certifies DOCX validity or safety: subsequent parser validation must still check
+unsupported links, unreadable XML, and other package problems.
 
 ### Metadata inspection and sanitization
 
