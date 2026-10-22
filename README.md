@@ -414,12 +414,11 @@ applies.
 
 ```python
 from docxtor import (
-    CommentAuthor,
-    CommentRange,
+    CommentAuthor, CommentRange,
     DocxDocument,
-    RevisionAuthor,
-    RevisionRange,
+    RevisionAuthor, RevisionRange,
     accept_all_revisions_bytes,
+    reject_all_revisions_bytes,
 )
 
 doc = DocxDocument.open("input.docx")
@@ -439,6 +438,7 @@ doc.replace_revision(
 doc.remove_comments({added.receipt.created_ids[0]})
 doc.publish()
 accepted = accept_all_revisions_bytes(doc.to_bytes(), drop_comments=False)
+rejected = reject_all_revisions_bytes(doc.to_bytes(), drop_comments=False)
 ```
 
 `DocxDocument` is the open DOCX handle. Comment add/update/remove and tracked
@@ -464,12 +464,12 @@ recognizes the OOXML on/off values. Malformed, duplicated, misplaced or
 unsupported tracking settings make coverage incomplete. Bulk acceptance and
 rejection require complete revision inventories before and after transformation.
 
-`accept_all_revisions_bytes(data, drop_comments=False, disable_tracking=True)`
-accepts the revisions and disables future change tracking. Its receipt records
-the tracking state before and after the operation. The default preserves the
-tracking setting. Disabling tracking leaves other settings, personal metadata,
-bookmarks and unresolved comments intact. Callers decide when accepting all
-revisions is appropriate for their publication workflow.
+`accept_all_revisions_bytes(data, *, drop_comments=True, disable_tracking=False)`
+and `reject_all_revisions_bytes(data, *, drop_comments=True)` return receipts with
+output bytes and before/after inventories. Both remove comments by default;
+`drop_comments=False` preserves them. The examples independently accept or reject
+revisions from the same source bytes. Only acceptance supports `disable_tracking=True`;
+it disables future tracking while leaving other settings and personal metadata intact.
 
 #### Source-bound comment regions
 
