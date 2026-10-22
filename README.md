@@ -8,7 +8,7 @@ round-trips across plain text files, DOCX files, and text-layer PDFs.
 
 ## Status
 
-Early library. The public API exports 216 names. The public API is not stable yet.
+Early library. The public API exports 219 names. The public API is not stable yet.
 
 ## Public API
 
@@ -20,7 +20,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | Document types and loading | `DOCX_MIME`, `MD_MIME`, `PDF_MIME`, `TXT_MIME`, `DocumentBytes`, `DocumentError`, `DocumentKind`, `DetectedDocumentType`, `detect_document_type`, `document_to_bytes`, `load_document`, `PdfDocument`, `PdfExtractionMode`, `PlainTextDocument` |
 | DOCX text and inline editing | `AddressableComment`, `AddressableSpan`, `DocxDocument`, `InlineSegment`, `InlineSegmentKind`, `SegmentReplacement`, `SpanRole`, `TextSegment`, `UnsupportedRevisionError`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline` |
 | Paragraph and run locators | `ParagraphLocator`, `ParagraphResolution`, `RunLocator`, `RunResolution` |
-| Comment mutations | `CommentScopeBookmark`, `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange` |
+| Comment mutations | `CommentScopeBookmark`, `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange`, `CommentReplyTarget`, `CommentReplyResult`, `append_comment_reply_bytes` |
 | Document comparison | `compare_docx_documents`, `BlockPair`, `CommentAnchor`, `CommentChange`, `CommentChangeStatus`, `ComparisonCoverage`, `ComparisonDiagnostic`, `DiagnosticSeverity`, `DocumentBlock`, `DocumentComment`, `DocumentSpan`, `DocumentView`, `DocxDocumentComparison`, `FormattingChange`, `FormattingSpan`, `RevisionEvent`, `RevisionEventStatus`, `RevisionReference`, `RevisionResolutionEvidence`, `TextAnchor`, `TextChange`, `TextChangeKind` |
 | Cross-reference diagnostics | `DOCX_CROSS_REFERENCE_PROFILE_ID`, `CrossReferenceDiagnostic`, `CrossReferenceReport`, `CrossReferenceSeverity`, `diagnose_docx_cross_references` |
 | Mechanical facts and structural comparison | `ChangeKind`, `ContainerCoordinate`, `DocxComparison`, `DocxFactsSnapshot`, `DocxStructureSnapshot`, `FactChange`, `FactDiagnostic`, `FactsCoverage`, `NamedFact`, `PageBreakFact`, `PageLayoutFacts`, `ParagraphFact`, `RelationshipFact`, `StoryFact`, `TransformPolicy`, `UnreadablePartFact`, `compare_docx`, `docx_facts` |
@@ -193,15 +193,15 @@ User-authored footnotes and endnotes are mechanical stories with stable
 `footnote:{id}:p:{n}` and `endnote:{id}:p:{n}` ids. Separator and continuation-
 separator notes are not user segments, and missing note parts are never created.
 
-Word comment bodies are addressable as `comment:{id}:p:{n}` segments and through
-`document.comments`. Each `AddressableComment` carries the comment id, body text,
-author/initials/date, the story locator and anchored range text when present, and
-`parent_id` for replies named by `commentsExtended.xml`. Replacing comment text
-writes into the existing comment paragraphs and keeps comment IDs, range anchors,
-authorship attributes, and thread sidecar parts (`commentsExtended.xml`,
-`commentsIds.xml`, `people.xml`). Empty comment parts and separator-only notes do
-not become user-authored segments. Unknown comment targets fail before any edit.
-ReviewKit remains responsible for review semantics.
+Comment bodies use `comment:{id}:p:{n}` segments; `document.comments` exposes text, authorship, anchors and native `parent_id`. Text replacement preserves identities and sidecars; empty comments and separator notes are not user segments.
+`append_comment_reply_bytes(data, target: CommentReplyTarget, text: str, author: CommentAuthor) -> CommentReplyResult` appends a native reply.
+`target = CommentReplyTarget(document_sha256, parent_id)` binds the exact native parent to immutable input bytes; stale or ambiguous targets raise `CommentMutationError`.
+`document.append_comment_reply(target, text, author)` adopts verified bytes; `document.publish()` uses validated atomic replacement, preserving the destination on failure.
+Supported forms are anchored comments, multi-paragraph comments identified by their last paragraph, and nested replies with proved inherited scope.
+Existing bodies, IDs, authorship, anchors, links and completion attributes remain intact; absent completion stays absent, and the new reply has `done=0` without reopening its parent.
+Legacy threads gain missing paragraph identities and native relationships/types; durable `commentsIds`, extensible comments, multi-story region parents and incomplete graphs fail closed.
+`CommentReplyResult` carries `data`, verified `reply_id`/`parent_id`, complete `coverage`, comments and an `OperationReceipt` with input/output hashes, created ID, affected parts and applied status.
+Untouched OPC payloads remain byte-exact, including people and unrelated extensions; ZIP containers need not match. Explicit completion mutation is not provided. ReviewKit owns review meaning.
 
 ### Package and combined transactions
 
