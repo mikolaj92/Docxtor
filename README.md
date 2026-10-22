@@ -109,12 +109,12 @@ instead of returning bytes.
 
 ### Hyperlink field instruction predicate
 
-`instruction_is_strippable_hyperlink_field(instruction: str) -> bool` checks only
-instruction text, ignoring case. It returns `True` for a whole-word `HYPERLINK`
-or `LINK` token plus `mailto:`, `http://`, `https://`, `file:`, or `ftp://`;
-otherwise `False`, including empty input. A full internal TOC match (either token,
-then `\l` and `_Toc` plus digits, optionally quoted, with surrounding whitespace)
-also returns `False`.
+`instruction_is_strippable_hyperlink_field(instruction: str) -> bool` searches
+instruction text case-insensitively for a whole-word `HYPERLINK` or `LINK` token
+and `mailto:`, `http://`, `https://`, `file:`, or `ftp://`. Both must occur for
+`True`; otherwise it returns `False`, including empty input. A full internal TOC
+match (either token, then `\l` and `_Toc` plus digits, optionally quoted, with
+surrounding whitespace) returns `False`.
 
 ```python
 from docxtor import instruction_is_strippable_hyperlink_field
@@ -123,9 +123,9 @@ assert instruction_is_strippable_hyperlink_field('HYPERLINK "https://example.com
 assert not instruction_is_strippable_hyperlink_field('HYPERLINK "relative/path"')
 ```
 
-It does not open or modify a DOCX package, validate the URI or whole field,
-confirm safety, or guarantee flattening. Package structure and mutation checks
-remain with the separate `flatten_link_fields` operation.
+It neither opens nor modifies a DOCX package, validates URI/field correctness,
+nor confirms safety or guarantees flattening. Package structure and mutation
+checks belong to the separate `flatten_link_fields` operation.
 
 ### Metadata inspection and sanitization
 
