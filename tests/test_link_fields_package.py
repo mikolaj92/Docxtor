@@ -13,11 +13,17 @@ from docxtor import DocxDocument, flatten_link_fields
 
 
 @pytest.mark.parametrize("as_string", [False, True])
-def test_unchanged_package_is_not_written(tmp_path: Path, as_string: bool) -> None:
+@pytest.mark.parametrize("unreadable_custom_xml", [False, True])
+def test_unchanged_package_is_not_written(
+    tmp_path: Path, as_string: bool, unreadable_custom_xml: bool
+) -> None:
     path = tmp_path / "unchanged.docx"
     document = Document()
     document.add_paragraph("Plain text without links.")
     document.save(path)
+    if unreadable_custom_xml:
+        with ZipFile(path, "a") as archive:
+            archive.writestr("customXml/unreadable.xml", b"<broken")
     before = path.read_bytes()
     stat = path.stat()
 
