@@ -107,6 +107,54 @@ one paragraph per string, and returns DOCX bytes. Incomplete inventory coverage
 of the created document raises `DocxCreationError`, a `ValueError` subclass,
 instead of returning bytes.
 
+### `flatten_link_fields`
+
+Use this package rewrite on a working copy, before opening it with the parser:
+
+```python
+from pathlib import Path
+from shutil import copy2
+
+from docxtor import DocxDocument, flatten_link_fields
+
+working_copy = Path("working.docx")
+copy2("input.docx", working_copy)
+rewritten = flatten_link_fields(working_copy)
+document = DocxDocument.open(working_copy)
+```
+
+`flatten_link_fields(path)` accepts `str | Path` and writes back to that same
+path. `True` means the package was rewritten, not that it passed validation.
+`False` means no supported change was found: no file is written, and the package
+remains byte-for-byte identical. A changed ZIP is written completely to a sibling
+temporary file, then published with `os.replace`; temporary files are cleaned up
+on failure. Rewritten packages need not be byte-identical to their inputs.
+
+The operation handles `word/document.xml`, `word/header*.xml`, and
+`word/footer*.xml`. It flattens simple and non-nested, complete complex
+`HYPERLINK`/`LINK` fields containing `mailto:`, `http://`, `https://`, `file:`, or
+`ftp://`, retaining their display children. It also unwraps relationship-backed
+`w:hyperlink` elements, retaining display children and removing matching hyperlink
+relationships. Internal TOC fields (`HYPERLINK \\l _Toc[0-9]+`) and hyperlinks
+without a relationship ID remain unchanged.
+
+In `customXml/*.xml`, text, tails, and ordinary attribute values containing those
+URI forms are cleared in full, not just the URI substring. Namespace declarations
+and recognized schema-identifier attributes remain unchanged.
+
+Malformed XML in a supported document, header, or footer part raises
+`xml.etree.ElementTree.ParseError` before publication, leaving the source bytes
+unchanged. Unreadable custom XML and malformed relationship XML are instead left
+untouched for later parser validation; they do not by themselves prevent a rewrite.
+
+This is not a general link remover or package validator. It does not flatten
+nested or unmatched complex fields, opaque field switches without a recognized
+URI, DrawingML click/hover links, VML links, linked images, attached templates,
+or orphan external relationships. Other stories, such as footnotes and comments,
+are outside this operation's scope. Parser checks can still reject the result.
+Neither boolean result replaces later parser validation or establishes package
+safety or full OOXML conformance.
+
 ### Metadata inspection and sanitization
 
 ```python
