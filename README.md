@@ -107,46 +107,6 @@ one paragraph per string, and returns DOCX bytes. Incomplete inventory coverage
 of the created document raises `DocxCreationError`, a `ValueError` subclass,
 instead of returning bytes.
 
-### `flatten_link_fields`
-
-Run on a working copy; the operation rewrites that same path:
-
-```python
-from pathlib import Path
-from shutil import copyfile
-
-from docxtor import flatten_link_fields
-
-working_copy = Path("working.docx")
-copyfile("input.docx", working_copy)
-changed = flatten_link_fields(working_copy)
-```
-
-Accepts `str` or `Path`. Returns `True` after rewriting, or `False` without
-writing: the input stays byte-identical. Changes use a sibling temporary ZIP
-and `os.replace`; failure before replacement preserves the source and removes
-the temporary file.
-
-The operation handles `word/document.xml`, `word/header*.xml`, and
-`word/footer*.xml`. It flattens simple and non-nested, matched complex
-`HYPERLINK`/`LINK` fields whose instructions contain `mailto:`, `http://`,
-`https://`, `file:`, or `ftp://`, retaining their display children. It also unwraps
-relationship-backed `w:hyperlink` elements, retaining their display children,
-and removes matching hyperlink relationships from the corresponding `.rels` part.
-In `customXml/*.xml`, it blanks entire text, tail, and non-schema attribute values
-containing those URI forms; namespace and schema identifiers remain unchanged.
-
-Internal TOC fields (`HYPERLINK`/`LINK` with `\\l _Toc[0-9]+`) and anchor-only
-`w:hyperlink` elements without a relationship ID remain unchanged. Nested or
-unmatched complex fields, other stories, DrawingML/VML links, linked images,
-attached templates, and orphan external relationships are not cleaned up.
-This is not general link removal or anonymization; displayed URLs can remain.
-
-Malformed document/header/footer XML raises before source replacement; unreadable
-`customXml` and malformed relationship XML remain unchanged. Neither result
-certifies DOCX validity or safety: subsequent parser validation must still check
-unsupported links, unreadable XML, and other package problems.
-
 ### Metadata inspection and sanitization
 
 ```python
