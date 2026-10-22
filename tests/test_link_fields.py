@@ -1,10 +1,51 @@
 from pathlib import Path
 
+import pytest
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-from docxtor import DocxDocument, flatten_link_fields
+from docxtor import (
+    DocxDocument,
+    flatten_link_fields,
+    instruction_is_strippable_hyperlink_field,
+)
+
+
+@pytest.mark.parametrize("token", ["HYPERLINK", "LINK", "hyperlink", "lInK"])
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "mailto:a@example.com",
+        "http://example.com",
+        "HTTPS://example.com",
+        "FiLe:///tmp/document.docx",
+        "FtP://example.com/document.docx",
+    ],
+)
+def test_instruction_is_strippable_hyperlink_field(token: str, uri: str) -> None:
+    assert instruction_is_strippable_hyperlink_field(f' {token} "{uri}" ') is True
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        r'HYPERLINK \l "_Toc123"',
+        r" LINK \l _Toc456 ",
+        r'hyperlink \L "_tOc789"',
+        "",
+        "   ",
+        '"https://example.com"',
+        'INCLUDETEXT "https://example.com"',
+        'NOTHYPERLINK "https://example.com"',
+        'LINKED "https://example.com"',
+        "HYPERLINK",
+        'LINK "relative/document.docx"',
+        'HYPERLINK "urn:example:document"',
+    ],
+)
+def test_instruction_is_not_strippable_hyperlink_field(instruction: str) -> None:
+    assert instruction_is_strippable_hyperlink_field(instruction) is False
 
 
 def test_flatten_hyperlink_field_keeps_display(tmp_path: Path) -> None:
