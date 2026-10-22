@@ -109,13 +109,12 @@ instead of returning bytes.
 
 ### Hyperlink instruction predicate
 
-`instruction_is_strippable_hyperlink_field(instruction: str) -> bool` checks only
-instruction text, ignoring case. It returns `True` for a whole-word `HYPERLINK`
-or `LINK` token plus a substring `mailto:`, `http://`, `https://`, `file:`, or
-`ftp://`; otherwise `False`, including empty text. Full internal TOC matches
-return `False`: `HYPERLINK` or `LINK`, whitespace, `\l`, whitespace, then `_Toc`
-and one or more digits, with independently optional opening/closing quotes
-and optional surrounding whitespace.
+`instruction_is_strippable_hyperlink_field(instruction: str) -> bool` checks
+instruction text case-insensitively: a whole-word `HYPERLINK` or `LINK` token
+plus `mailto:`, `http://`, `https://`, `file:`, or `ftp://` anywhere returns `True`;
+otherwise `False`, including empty text. Full internal TOC matches return `False`:
+`HYPERLINK` or `LINK`, whitespace, `\l`, whitespace, `_Toc` and one or more digits,
+with independently optional opening/closing quotes and surrounding whitespace.
 
 ```python
 from docxtor import instruction_is_strippable_hyperlink_field
@@ -124,8 +123,8 @@ assert instruction_is_strippable_hyperlink_field('HYPERLINK "https://example.com
 assert not instruction_is_strippable_hyperlink_field(r'HYPERLINK \l "_Toc123"')
 ```
 
-It does not open or modify a DOCX package. `True` confirms neither safety,
-URI or complete-field validity, nor whether a package operation can flatten it.
+It never opens or modifies a DOCX package. `True` guarantees neither safety,
+URI/complete-field validity, nor successful package flattening.
 
 ### Metadata inspection and sanitization
 
