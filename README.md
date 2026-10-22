@@ -107,6 +107,29 @@ one paragraph per string, and returns DOCX bytes. Incomplete inventory coverage
 of the created document raises `DocxCreationError`, a `ValueError` subclass,
 instead of returning bytes.
 
+### Hyperlink instruction predicate
+
+`instruction_is_strippable_hyperlink_field(instruction: str) -> bool` checks only
+instruction text. It returns `True` when the text contains a whole-word
+`HYPERLINK` or `LINK` token and one of `mailto:`, `http://`, `https://`, `file:`,
+or `ftp://`. Both checks ignore case and search anywhere in the text.
+URI matching uses substrings, so `sftp://example.com` also matches `ftp://`.
+It returns `False` for a full internal TOC instruction match of
+`HYPERLINK \l _Toc[0-9]+` or `LINK \l _Toc[0-9]+`, allowing surrounding
+whitespace and optional quotes around the bookmark. Empty instructions, missing
+field tokens, and missing recognized URI prefixes also return `False`.
+
+```python
+from docxtor import instruction_is_strippable_hyperlink_field
+
+assert instruction_is_strippable_hyperlink_field('HYPERLINK "https://example.com"')
+assert not instruction_is_strippable_hyperlink_field(r'HYPERLINK \l "_Toc123"')
+```
+
+The predicate does not open or modify a DOCX package. A `True` result does not
+confirm URI safety or the validity of the complete field. It is a text check,
+not a substitute for the structural checks performed by `flatten_link_fields`.
+
 ### Metadata inspection and sanitization
 
 ```python
