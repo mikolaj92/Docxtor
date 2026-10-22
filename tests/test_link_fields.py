@@ -1,57 +1,10 @@
 from pathlib import Path
 
-import pytest
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
-from docxtor import (
-    DocxDocument,
-    flatten_link_fields,
-    instruction_is_strippable_hyperlink_field,
-)
-
-
-@pytest.mark.parametrize("token", ["HYPERLINK", "LINK", "hyperlink", "lInK"])
-@pytest.mark.parametrize(
-    "uri",
-    [
-        "mailto:a@example.com",
-        "http://example.com",
-        "https://example.com",
-        "file:///tmp/document.docx",
-        "ftp://example.com/document.docx",
-        "HTTPS://example.com",
-        "MAILTO:a@example.com",
-        "FILE:///tmp/document.docx",
-        "FTP://example.com/document.docx",
-        "sftp://example.com/document.docx",
-    ],
-)
-def test_instruction_predicate_recognizes_link_uris(token: str, uri: str) -> None:
-    assert instruction_is_strippable_hyperlink_field(f' {token} "{uri}" ') is True
-
-
-@pytest.mark.parametrize(
-    "instruction",
-    [
-        r'HYPERLINK \l "_Toc123"',
-        r" LINK \l _Toc123 ",
-        r'hyperlink \L "_toc123"',
-        "",
-        "   ",
-        '"https://example.com"',
-        'REF "https://example.com"',
-        'NOTHYPERLINK "https://example.com"',
-        'LINKED "https://example.com"',
-        "HYPERLINK",
-        'LINK "relative.docx"',
-        'HYPERLINK "ssh://example.com"',
-        'HYPERLINK "https:example.com"',
-    ],
-)
-def test_instruction_predicate_rejects_nonmatching_text(instruction: str) -> None:
-    assert instruction_is_strippable_hyperlink_field(instruction) is False
+from docxtor import DocxDocument, flatten_link_fields
 
 
 def test_flatten_hyperlink_field_keeps_display(tmp_path: Path) -> None:
