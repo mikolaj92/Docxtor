@@ -123,11 +123,10 @@ rewritten = flatten_link_fields(working_copy)
 document = DocxDocument.open(working_copy)
 ```
 
-`flatten_link_fields(path)` accepts `str | Path` and writes back to that same
-path. `True` means the package was rewritten, not that it passed validation.
-`False` means no supported change was found: no write occurs, preserving exact
-source bytes. Changed packages are written to a sibling temporary ZIP, then
-published with `os.replace`; failure cleans up the temporary file.
+`flatten_link_fields(path)` accepts `str | Path` and rewrites that same path.
+`True` means rewritten, not validated. `False` means no supported change: no
+write occurs, preserving exact source bytes. Changes use a sibling temporary
+ZIP and `os.replace`; failure removes the temporary file.
 
 The operation handles `word/document.xml`, `word/header*.xml`, and
 `word/footer*.xml`. It flattens simple and non-nested, complete complex
@@ -141,10 +140,9 @@ In `customXml/*.xml`, text, tails, and ordinary attribute values containing thos
 URI forms are cleared in full, not just the URI substring. Namespace declarations
 and recognized schema-identifier attributes remain unchanged.
 
-Malformed XML in a supported document, header, or footer part raises
-`xml.etree.ElementTree.ParseError` before publication, leaving the source bytes
-unchanged. Unreadable custom XML and malformed relationship XML are instead left
-untouched for later parser validation; they do not by themselves prevent a rewrite.
+Malformed document, header, or footer XML raises `xml.etree.ElementTree.ParseError`
+before publication, preserving source bytes. Unreadable custom XML and malformed
+relationship XML remain untouched for later parser validation; neither blocks a rewrite.
 
 This is not a general link remover or package validator. It does not flatten
 nested or unmatched complex fields, opaque field switches without a recognized
