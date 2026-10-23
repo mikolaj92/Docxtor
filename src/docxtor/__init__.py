@@ -29,6 +29,11 @@ from .docx_comment_mutations import (
     CommentMutationResult,
     CommentRange,
 )
+from .docx_comment_replies import (
+    CommentReplyResult,
+    CommentReplyTarget,
+    append_comment_reply_bytes,
+)
 from .docx_compare import compare_docx_documents
 from .docx_compare_models import (
     BlockPair,
@@ -293,6 +298,9 @@ __all__ = [
     "CommentMutationError",
     "CommentMutationResult",
     "CommentRange",
+    "CommentReplyResult",
+    "CommentReplyTarget",
+    "append_comment_reply_bytes",
     "PublishError",
     "DOCX_CROSS_REFERENCE_PROFILE_ID",
     "CrossReferenceDiagnostic",

@@ -8,7 +8,7 @@ round-trips across plain text files, DOCX files, and text-layer PDFs.
 
 ## Status
 
-Early library. The public API exports 216 names. The public API is not stable yet.
+Early library. The public API exports 219 names. The public API is not stable yet.
 
 ## Public API
 
@@ -20,7 +20,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | Document types and loading | `DOCX_MIME`, `MD_MIME`, `PDF_MIME`, `TXT_MIME`, `DocumentBytes`, `DocumentError`, `DocumentKind`, `DetectedDocumentType`, `detect_document_type`, `document_to_bytes`, `load_document`, `PdfDocument`, `PdfExtractionMode`, `PlainTextDocument` |
 | DOCX text and inline editing | `AddressableComment`, `AddressableSpan`, `DocxDocument`, `InlineSegment`, `InlineSegmentKind`, `SegmentReplacement`, `SpanRole`, `TextSegment`, `UnsupportedRevisionError`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline` |
 | Paragraph and run locators | `ParagraphLocator`, `ParagraphResolution`, `RunLocator`, `RunResolution` |
-| Comment mutations | `CommentScopeBookmark`, `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange` |
+| Comment mutations | `CommentScopeBookmark`, `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange`, `CommentReplyTarget`, `CommentReplyResult`, `append_comment_reply_bytes` |
 | Document comparison | `compare_docx_documents`, `BlockPair`, `CommentAnchor`, `CommentChange`, `CommentChangeStatus`, `ComparisonCoverage`, `ComparisonDiagnostic`, `DiagnosticSeverity`, `DocumentBlock`, `DocumentComment`, `DocumentSpan`, `DocumentView`, `DocxDocumentComparison`, `FormattingChange`, `FormattingSpan`, `RevisionEvent`, `RevisionEventStatus`, `RevisionReference`, `RevisionResolutionEvidence`, `TextAnchor`, `TextChange`, `TextChangeKind` |
 | Cross-reference diagnostics | `DOCX_CROSS_REFERENCE_PROFILE_ID`, `CrossReferenceDiagnostic`, `CrossReferenceReport`, `CrossReferenceSeverity`, `diagnose_docx_cross_references` |
 | Mechanical facts and structural comparison | `ChangeKind`, `ContainerCoordinate`, `DocxComparison`, `DocxFactsSnapshot`, `DocxStructureSnapshot`, `FactChange`, `FactDiagnostic`, `FactsCoverage`, `NamedFact`, `PageBreakFact`, `PageLayoutFacts`, `ParagraphFact`, `RelationshipFact`, `StoryFact`, `TransformPolicy`, `UnreadablePartFact`, `compare_docx`, `docx_facts` |
@@ -70,6 +70,10 @@ With `uv`:
 uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.1
 ```
 
+Pin the current release tag `v0.19.1` (matching `pyproject.toml`). For the
+feature history of earlier releases, see the git tags and `docs/releases/`.
+Avoid `v0.4.1`: it shipped version `0.4.0`; `v0.4.4` corrected the pin.
+
 ## Basic Usage
 
 ```python
@@ -96,35 +100,44 @@ output.data          # bytes
 Each replacement targets a stable segment identifier. Offset-based partial
 replacements are available when a whole segment should not be rewritten.
 
-### DOCX admission inspection
+### DOCX creation
+
+`create_docx_from_paragraphs(paragraphs)` accepts an `Iterable[str]`, creates
+one paragraph per string, and returns DOCX bytes. Incomplete inventory coverage
+of the created document raises `DocxCreationError`, a `ValueError` subclass,
+instead of returning bytes.
+
+### Metadata inspection and sanitization
 
 ```python
-from docxtor import inspect_docx_admission, DocxAdmissionInspection, DocumentPackageKind
+from docxtor import MetadataInspection, inspect_docx_metadata, sanitize_docx_metadata
+
+report: MetadataInspection = inspect_docx_metadata("copy.docx")
+sanitize_docx_metadata("copy.docx", review_author="Reviewer", review_initials="RV")
 ```
 
-`inspect_docx_admission(content: bytes)` returns a `DocxAdmissionInspection`
-with these fields:
+Both functions accept `str | Path`. Inspection does not write the file.
+`violations` is a tuple of messages; `clean` means that tuple is empty.
+Inspection checks non-whitespace element text in `docProps/core.xml` and `docProps/app.xml`, and flags other `docProps/` parts.
+Messages omit values, but element names come from input. Some unreadable inputs produce violations; other errors, including some corrupt ZIP errors, can raise exceptions.
+Inspection excludes authorship in `word/`, some attributes, and full OOXML conformance. `clean` does not establish whole-document safety.
 
-- `package_kind`: `DocumentPackageKind.VALID` (`"valid"`) when
-  `word/document.xml` is present, `ENCRYPTED` (`"encrypted"`) when an OLE
-  signature or `EncryptedPackage`/`EncryptionInfo` parts are detected (taking precedence), or
-  `INVALID` (`"invalid"`) otherwise. `VALID` does not guarantee full OOXML
-  conformance.
-- `has_main_document`: whether `word/document.xml` is present.
-- `has_macros`: whether a `vbaProject.bin` part is present; this does not analyze
-  or execute macros.
-- `page_count`: a positive page count from `docProps/app.xml` metadata, or
-  `None` when unavailable or invalid. It is not calculated by rendering.
-- `diagnostics`: a tuple of unreadable or unknown part names, including
-  `<package>` when the input cannot be read as a package.
+Sanitization changes the file in place and returns `None`. It clears XML text and tails in core/app.
+It removes other `docProps/` parts and matching root package relationships and content-type overrides.
+In `word/` XML, it replaces existing `author` attributes on `comment`, `ins`, `del`, and `person`, and existing comment `initials`; it removes `person` `userId`/`providerId`.
+Defaults are `review_author="Reviewer"` and `review_initials="RV"`; absent attributes are not added.
+The complete ZIP is written to a sibling temporary file before atomic replacement.
+Malformed XML during sanitization raises before replacement, preserving the input and removing the temporary file. This is not full anonymization.
 
 ### Complete package inventory
 
 `DocxDocument.inventory()` enumerates every ZIP/OPC member, including orphan
 parts that `python-docx` cannot reach through relationships. It exposes neutral
 `DocumentSurface` records for XML text, XML attributes, and relationship targets.
-Each surface has a stable ID, value hash, visibility, and mechanical capability
-such as `value_replace` or `preserve_only`.
+Each surface has a stable ID, value hash, visibility, and mechanical capability.
+Qualified context uses `element_qname` and `attribute_qname` (namespace-qualified
+XML names), `ancestor_qnames` (root-to-parent names), and a mechanical `role`.
+`locator_version` identifies the locator scheme (`docxtor-surface-v1`).
 
 `inventory()`, `facts()`, and `apply_surface_replacements()` read the current
 in-memory XML, including prior text replacements, while retaining orphan parts
@@ -132,35 +145,15 @@ and their content types. The original opening bytes remain the publication
 source. Surface mutations return verified bytes in `result.data`; they do not
 update the document instance.
 
-```python
-from docxtor import DocxDocument, InventoryCoverage
-
-document = DocxDocument.open("input.docx")
-inventory = document.inventory()
-if inventory.coverage is not InventoryCoverage.COMPLETE:
-    raise RuntimeError(
-        f"uncovered DOCX parts: {inventory.unknown_parts + inventory.unreadable_parts}"
-    )
-
-for surface in inventory.surfaces:
-    print(surface.surface_id, surface.kind, surface.capability)
-```
-
-Docxtor reports physical values and capabilities only. It does not decide
-whether a value is PII, legally relevant, or review content. Consumers must
-fail closed when their policy requires complete coverage.
+`inventory.coverage` is `InventoryCoverage.COMPLETE` only when no parts are
+unknown or unreadable; `unknown_parts` and `unreadable_parts` identify gaps.
+Consumers must reject incomplete coverage when their policy requires it.
+Docxtor reports physical facts, not PII, legal relevance, or review meaning.
 
 Exact `SurfaceReplacement` mutations require the value hash observed during
 inventory. Docxtor reopens the output and returns a disposition for every
 requested surface. Unknown targets, stale hashes, preserve-only surfaces, and
 unconfirmed writes fail before partial output is returned.
-
-For consumers that implement higher-level review grammar, Docxtor also exposes
-safe neutral package primitives: `read_package_entries`,
-`write_package_atomically`, `normalize_docx_timestamps`, and
-`restore_semantically_unchanged_xml_parts`. They validate OPC member names,
-duplicates, archive expansion limits, XML syntax and DOCTYPE before publishing
-an output. These APIs do not interpret revisions, comments, PII, or law.
 
 ```python
 from docxtor import SurfaceReplacement
@@ -200,15 +193,80 @@ User-authored footnotes and endnotes are mechanical stories with stable
 `footnote:{id}:p:{n}` and `endnote:{id}:p:{n}` ids. Separator and continuation-
 separator notes are not user segments, and missing note parts are never created.
 
-Word comment bodies are addressable as `comment:{id}:p:{n}` segments and through
-`document.comments`. Each `AddressableComment` carries the comment id, body text,
-author/initials/date, the story locator and anchored range text when present, and
-`parent_id` for replies named by `commentsExtended.xml`. Replacing comment text
-writes into the existing comment paragraphs and keeps comment IDs, range anchors,
-authorship attributes, and thread sidecar parts (`commentsExtended.xml`,
-`commentsIds.xml`, `people.xml`). Empty comment parts and separator-only notes do
-not become user-authored segments. Unknown comment targets fail before any edit.
-ReviewKit remains responsible for review semantics.
+Comment bodies use `comment:{id}:p:{n}` segments; `document.comments` exposes text, authorship, anchors and native `parent_id`. Text replacement preserves identities and sidecars; empty comments and separator notes are not user segments.
+`append_comment_reply_bytes(data, target: CommentReplyTarget, text: str, author: CommentAuthor) -> CommentReplyResult` appends a native reply.
+`target = CommentReplyTarget(document_sha256, parent_id)` binds the exact native parent to immutable input bytes; stale or ambiguous targets raise `CommentMutationError`.
+`document.append_comment_reply(target, text, author)` adopts verified bytes; `document.publish()` uses validated atomic replacement, preserving the destination on failure.
+Supported forms are anchored comments, multi-paragraph comments identified by their last paragraph, and nested replies with proved inherited scope.
+Existing bodies, IDs, authorship, anchors, links and completion attributes remain intact; absent completion stays absent, and the new reply has `done=0` without reopening its parent.
+Legacy threads gain missing paragraph identities and native relationships/types; durable `commentsIds`, extensible comments, multi-story region parents and incomplete graphs fail closed.
+`CommentReplyResult` carries `data`, verified `reply_id`/`parent_id`, complete `coverage`, comments and an `OperationReceipt` with input/output hashes, created ID, affected parts and applied status.
+Untouched OPC payloads remain byte-exact, including people and unrelated extensions; ZIP containers need not match. Explicit completion mutation is not provided. ReviewKit owns review meaning.
+
+### Package and combined transactions
+
+`apply_package_transaction(data, mutations, *, validators=(),
+require_complete_coverage=True)` transforms DOCX bytes in memory, without writing
+files. `PackageMutation` requires a unique `operation_id`, `kind`, `target_id`,
+and `expected_sha256`; optional fields are `value`, `cascade`, and `content_type`.
+`content_type` is currently unused. `PackageMutationKind` supports
+`REPLACE_SURFACE` (string value), `REMOVE_SURFACE`, `REMOVE_RELATIONSHIP`,
+`REPLACE_PART` (bytes value), and `REMOVE_PART`. Surface/relationship targets use
+`surface_id` and `value_sha256`; part targets use `name` and `sha256`.
+Removing a part with incoming relationships requires `cascade=True`, which also
+removes those links; part removal cleans its relationship part and type override.
+
+Hashes must match the source inventory. Complete inventory coverage is required
+before and after by default. `PackageMutationError` reports rejected mutations,
+incomplete coverage, unexpected changes, or unconfirmed operations; package-read
+and validator errors can propagate separately. No receipt or intermediate result
+is returned on error. Validators receive the complete package receipt before return.
+`PackageTransactionReceipt` contains `data`, `inventory_before`, `inventory_after`,
+`operations`, `surfaces`, `parts`, and the derived `unexpected` dispositions.
+
+`apply_docx_transaction(data, *, text_targets=(), package_mutations=(),
+validators=(), require_complete_coverage=True)` applies strict text replacements
+first. Its package stage checks hashes and inventories against the post-text state.
+`CombinedTransactionReceipt` contains `data`, normalized `text_targets`, and
+`package` (the package receipt). Neither function updates an existing handle.
+
+This example requires `input.docx` with a nonempty creator property and a text
+segment. The two variants independently use the same original bytes; changing
+body text leaves the selected metadata surface unchanged.
+
+```python
+from docxtor import (
+    DocxDocument, PackageMutation, PackageMutationKind, SegmentReplacement,
+    apply_docx_transaction, apply_package_transaction,
+)
+
+document = DocxDocument.open("input.docx")
+data = document.to_bytes()
+inventory = document.inventory()
+author = next(s for s in inventory.surfaces if s.part_name == "docProps/core.xml"
+              and s.element_qname == "{http://purl.org/dc/elements/1.1/}creator")
+mutation = PackageMutation(
+    "replace-author", PackageMutationKind.REPLACE_SURFACE,
+    author.surface_id, author.value_sha256, value=author.value + " (edited)",
+)
+receipt = apply_package_transaction(data, [mutation])
+assert not receipt.unexpected
+package_bytes = receipt.data
+
+segment = next(s for s in document.segments if s.text)
+receipt = apply_docx_transaction(
+    data,
+    text_targets=[SegmentReplacement(container_id=segment.container_id, text="Updated text")],
+    package_mutations=[mutation],
+)
+combined_bytes = receipt.data
+assert not receipt.package.unexpected
+```
+
+For atomic file publication, pass `read_package_entries(receipt.data)` to
+`write_package_atomically(destination, entries)`. It validates a sibling temporary
+file, runs an optional `validate(path)` callback, then atomically replaces the
+destination; failure before replacement preserves the existing destination.
 
 ### Text search across runs
 
@@ -229,9 +287,7 @@ match = document.find_text("thirty days", match="normalized")[0]
 document.replace_match(match, "business days")
 ```
 
-Search does not span paragraph boundaries or choose among matches on the
-caller's behalf. Use the returned match list and explicit paragraph coordinates
-to make that choice.
+Search stays within paragraphs; callers choose matches and paragraph coordinates.
 
 ### Typed paragraph and run locators
 
@@ -312,81 +368,9 @@ MIT
 
 ## Sole mechanical DOCX layer
 
-**Docxtor is the single source of truth for mechanical DOCX manipulation.**
-
-It owns:
-- stable addressing (`container_id`, global `paragraph_index` counting empties)
-- rich decomposition (`InlineSegment` with text + opaque, `rpr`, original element)
-- pure offset primitives (internal helpers; the public surface is `SegmentReplacement` sub-range offsets via `apply_replacements`)
-- mutation (`apply_targets`, `apply_replacements`, `replace_placeholder`)
-- access and rebuild (`get_inline_segments`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline`)
-
-Reviewkit (and Dike via it) delegates base paragraph/run/offset work to Docxtor and only layers review semantics (tracked changes as decision trace, comments, `apply_to_corrected`, `RenderIntegrityError`, policy, purity).
-
-Temida consumers (posejdon_docs, dike_docs, anonimizator3000, ...) are thin adapters or high-level users. They contain **no** custom run splitting, offset math, or paragraph-mutation logic.
-
-Docxtor 0.3.0+ uses `python-docx`, a third-party library, as its internal DOCX engine.
-
-Key features:
-- Stable `container_id` (e.g. `"body:p:0"`, `"header:0:p:0"`, `"table:0:r:0:c:0:p:0"`, `"txbx:0:p:0"`) and `paragraph_index`.
-- `SegmentReplacement` for structured edits (full segment or sub-range by character offsets).
-- `apply_replacements(..., strict=True)` — fail-closed on unknown targets or bad offsets.
-- Partial replacements via `apply_replacements` update existing `w:t` text nodes without splitting `w:r` runs or creating new formatting boundaries; intermediate text nodes may remain empty.
-- Structured `SegmentReplacement` records and `apply_replacements(..., strict=True)` are the canonical DOCX editing path.
-
-Example with offsets (similar to `WriteTarget` style used in Temida/Posejdon):
-
-```python
-from docxtor import DocxDocument, SegmentReplacement
-
-doc = DocxDocument.open("input.docx")
-
-print([s.container_id for s in doc.segments])
-
-# Partial replacement inside a segment (character offsets)
-doc.apply_replacements([
-    SegmentReplacement(
-        container_id="body:p:0",
-        text="REDACTED",
-        start_offset=6,
-        end_offset=12,
-    )
-], strict=True)
-
-# Or replace a whole segment by its stable identifier
-doc.apply_replacements([
-    SegmentReplacement(
-        container_id="body:p:1",
-        text="New second paragraph",
-    ),
-], strict=True)
-
-doc.save_docx("output.docx")
-```
-
-```text
-['body:p:0', 'body:p:1', 'header:0:p:0', ...]
-```
-
-`apply_replacements(..., strict=True)` raises on unknown targets or bad offsets.
-
-Example with nested revision / hyperlink spans:
-
-```python
-from docxtor import DocxDocument, SegmentReplacement, UnsupportedRevisionError
-
-doc = DocxDocument.open("input.docx")
-for span in doc.spans:
-    print(span.span_id, span.role, span.text)
-    # body:p:0:span:1 insertion Alice
-    # body:p:0:span:3 hyperlink contract
-
-doc.apply_replacements(
-    [SegmentReplacement(span_id="body:p:0:span:1", text="Alina")],
-    strict=True,
-)
-```
-
+`SegmentReplacement` targets a `container_id` with optional `start_offset` and
+`end_offset`, or a nested `span_id`. `apply_replacements(..., strict=True)` raises
+on unknown targets or bad offsets. Consumers delegate physical OOXML edits here.
 
 ### Neutral Word review markup
 
@@ -430,12 +414,11 @@ applies.
 
 ```python
 from docxtor import (
-    CommentAuthor,
-    CommentRange,
+    CommentAuthor, CommentRange,
     DocxDocument,
-    RevisionAuthor,
-    RevisionRange,
+    RevisionAuthor, RevisionRange,
     accept_all_revisions_bytes,
+    reject_all_revisions_bytes,
 )
 
 doc = DocxDocument.open("input.docx")
@@ -455,6 +438,7 @@ doc.replace_revision(
 doc.remove_comments({added.receipt.created_ids[0]})
 doc.publish()
 accepted = accept_all_revisions_bytes(doc.to_bytes(), drop_comments=False)
+rejected = reject_all_revisions_bytes(doc.to_bytes(), drop_comments=False)
 ```
 
 `DocxDocument` is the open DOCX handle. Comment add/update/remove and tracked
@@ -480,12 +464,12 @@ recognizes the OOXML on/off values. Malformed, duplicated, misplaced or
 unsupported tracking settings make coverage incomplete. Bulk acceptance and
 rejection require complete revision inventories before and after transformation.
 
-`accept_all_revisions_bytes(data, drop_comments=False, disable_tracking=True)`
-accepts the revisions and disables future change tracking. Its receipt records
-the tracking state before and after the operation. The default preserves the
-tracking setting. Disabling tracking leaves other settings, personal metadata,
-bookmarks and unresolved comments intact. Callers decide when accepting all
-revisions is appropriate for their publication workflow.
+`accept_all_revisions_bytes(data, *, drop_comments=True, disable_tracking=False)`
+and `reject_all_revisions_bytes(data, *, drop_comments=True)` return receipts with
+output bytes and before/after inventories. Both remove comments by default;
+`drop_comments=False` preserves them. The examples independently accept or reject
+revisions from the same source bytes. Only acceptance supports `disable_tracking=True`;
+it disables future tracking while leaving other settings and personal metadata intact.
 
 #### Source-bound comment regions
 
