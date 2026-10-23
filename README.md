@@ -107,6 +107,14 @@ one paragraph per string, and returns DOCX bytes. Incomplete inventory coverage
 of the created document raises `DocxCreationError`, a `ValueError` subclass,
 instead of returning bytes.
 
+### flatten_link_fields
+`flatten_link_fields(path)` accepts `str | Path` and rewrites that same path. Work on a copy: `from shutil import copyfile; from docxtor import flatten_link_fields; copyfile("input.docx", "copy.docx"); changed = flatten_link_fields("copy.docx")`.
+It returns `True` when it rewrites the package, using a sibling temporary file and `os.replace`. `False` means no write occurred: the source stays byte-identical. Repeating a completed flattening returns `False`.
+In `word/document.xml`, `word/header*.xml`, and `word/footer*.xml`, it unwraps URI-bearing `HYPERLINK`/`LINK` simple fields and non-nested complex fields with a separator and end, preserving display children. Relationship-backed hyperlinks become their display children; matching hyperlink relationships are removed when readable.
+In `customXml/*.xml`, text, tails, and non-schema attribute values containing `mailto:`, `http://`, `https://`, `file:`, or `ftp://` are cleared in full, ignoring case. Namespace and schema identifiers remain unchanged.
+Malformed supported story XML raises before replacement, leaving the source unchanged. Unreadable customXml and malformed relationship XML remain untouched; neither necessarily prevents other parts from being rewritten.
+Internal TOC fields and anchor-only hyperlinks remain. Nested or unmatched complex fields, DrawingML/VML links, linked images, attached templates, orphan external relationships, and other stories are not flattened. A `True` result reports rewriting, not package validity or safety; later parser validation is still required and may reject the output.
+
 ### Metadata inspection and sanitization
 
 ```python
@@ -263,11 +271,6 @@ combined_bytes = receipt.data
 assert not receipt.package.unexpected
 ```
 
-For atomic file publication, pass `read_package_entries(receipt.data)` to
-`write_package_atomically(destination, entries)`. It validates a sibling temporary
-file, runs an optional `validate(path)` callback, then atomically replaces the
-destination; failure before replacement preserves the existing destination.
-
 ### Text search across runs
 
 `DocxDocument.find_text()` finds overlapping exact matches across Word run
@@ -339,9 +342,6 @@ uv run pytest
 
 ## Limits
 
-- DOCX output preserves archive entries and edits only selected Word XML story
-  parts.
-- Edited DOCX XML parts are rewritten, so output is not byte-identical.
 - Replacement text inherits formatting through original text-node spans. Large
   length changes can move style boundaries.
 - Document layout can change when replacement text length changes.
