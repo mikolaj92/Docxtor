@@ -25,6 +25,11 @@ from .docx_comment_mutations import (
 from .docx_comment_mutations import (
     update_comment as update_comment_bytes,
 )
+from .docx_comment_replies import (
+    CommentReplyResult,
+    CommentReplyTarget,
+    append_comment_reply_bytes,
+)
 from .docx_package import PackageEntry, PackageError, parse_package_xml, read_package_entries
 from .docx_publish import PublishError, PublishReceipt, publish_docx
 from .docx_review_inventory import inventory_review_markup
@@ -175,6 +180,14 @@ class DocxHandleOperations:
                 author=author,
             ),
         )
+        self._adopt_review_mutation(source, result.data, result.receipt)
+        return result
+
+    def append_comment_reply(
+        self, target: CommentReplyTarget, text: str, author: CommentAuthor
+    ) -> CommentReplyResult:
+        source = self._current_review_bytes()
+        result = append_comment_reply_bytes(source, target, text, author)
         self._adopt_review_mutation(source, result.data, result.receipt)
         return result
 

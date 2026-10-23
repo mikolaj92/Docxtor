@@ -8,7 +8,7 @@ round-trips across plain text files, DOCX files, and text-layer PDFs.
 
 ## Status
 
-Early library. The public API exports 216 names. The public API is not stable yet.
+Early library. The public API exports 219 names. The public API is not stable yet.
 
 ## Public API
 
@@ -20,7 +20,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | Document types and loading | `DOCX_MIME`, `MD_MIME`, `PDF_MIME`, `TXT_MIME`, `DocumentBytes`, `DocumentError`, `DocumentKind`, `DetectedDocumentType`, `detect_document_type`, `document_to_bytes`, `load_document`, `PdfDocument`, `PdfExtractionMode`, `PlainTextDocument` |
 | DOCX text and inline editing | `AddressableComment`, `AddressableSpan`, `DocxDocument`, `InlineSegment`, `InlineSegmentKind`, `SegmentReplacement`, `SpanRole`, `TextSegment`, `UnsupportedRevisionError`, `paragraph_to_inline_segments`, `rebuild_paragraph_from_inline` |
 | Paragraph and run locators | `ParagraphLocator`, `ParagraphResolution`, `RunLocator`, `RunResolution` |
-| Comment mutations | `CommentScopeBookmark`, `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange` |
+| Comment mutations | `CommentScopeBookmark`, `CommentAuthor`, `CommentMutationError`, `CommentMutationResult`, `CommentRange`, `CommentReplyTarget`, `CommentReplyResult`, `append_comment_reply_bytes` |
 | Document comparison | `compare_docx_documents`, `BlockPair`, `CommentAnchor`, `CommentChange`, `CommentChangeStatus`, `ComparisonCoverage`, `ComparisonDiagnostic`, `DiagnosticSeverity`, `DocumentBlock`, `DocumentComment`, `DocumentSpan`, `DocumentView`, `DocxDocumentComparison`, `FormattingChange`, `FormattingSpan`, `RevisionEvent`, `RevisionEventStatus`, `RevisionReference`, `RevisionResolutionEvidence`, `TextAnchor`, `TextChange`, `TextChangeKind` |
 | Cross-reference diagnostics | `DOCX_CROSS_REFERENCE_PROFILE_ID`, `CrossReferenceDiagnostic`, `CrossReferenceReport`, `CrossReferenceSeverity`, `diagnose_docx_cross_references` |
 | Mechanical facts and structural comparison | `ChangeKind`, `ContainerCoordinate`, `DocxComparison`, `DocxFactsSnapshot`, `DocxStructureSnapshot`, `FactChange`, `FactDiagnostic`, `FactsCoverage`, `NamedFact`, `PageBreakFact`, `PageLayoutFacts`, `ParagraphFact`, `RelationshipFact`, `StoryFact`, `TransformPolicy`, `UnreadablePartFact`, `compare_docx`, `docx_facts` |
@@ -106,25 +106,6 @@ replacements are available when a whole segment should not be rewritten.
 one paragraph per string, and returns DOCX bytes. Incomplete inventory coverage
 of the created document raises `DocxCreationError`, a `ValueError` subclass,
 instead of returning bytes.
-
-### Hyperlink instruction predicate
-
-`instruction_is_strippable_hyperlink_field(instruction: str) -> bool` checks
-instruction text case-insensitively: a whole-word `HYPERLINK` or `LINK` token
-plus `mailto:`, `http://`, `https://`, `file:`, or `ftp://` anywhere returns `True`;
-otherwise `False`, including empty text. Full internal TOC matches return `False`:
-`HYPERLINK` or `LINK`, whitespace, `\l`, whitespace, `_Toc` and one or more digits,
-with independently optional opening/closing quotes and surrounding whitespace.
-
-```python
-from docxtor import instruction_is_strippable_hyperlink_field
-
-assert instruction_is_strippable_hyperlink_field('HYPERLINK "https://example.com"')
-assert not instruction_is_strippable_hyperlink_field(r'HYPERLINK \l "_Toc123"')
-```
-
-It never opens or modifies a DOCX package. `True` guarantees neither safety,
-URI/complete-field validity, nor successful package flattening.
 
 ### Metadata inspection and sanitization
 
@@ -212,15 +193,15 @@ User-authored footnotes and endnotes are mechanical stories with stable
 `footnote:{id}:p:{n}` and `endnote:{id}:p:{n}` ids. Separator and continuation-
 separator notes are not user segments, and missing note parts are never created.
 
-Word comment bodies are addressable as `comment:{id}:p:{n}` segments and through
-`document.comments`. Each `AddressableComment` carries the comment id, body text,
-author/initials/date, the story locator and anchored range text when present, and
-`parent_id` for replies named by `commentsExtended.xml`. Replacing comment text
-writes into the existing comment paragraphs and keeps comment IDs, range anchors,
-authorship attributes, and thread sidecar parts (`commentsExtended.xml`,
-`commentsIds.xml`, `people.xml`). Empty comment parts and separator-only notes do
-not become user-authored segments. Unknown comment targets fail before any edit.
-ReviewKit remains responsible for review semantics.
+Comment bodies use `comment:{id}:p:{n}` segments; `document.comments` exposes text, authorship, anchors and native `parent_id`. Text replacement preserves identities and sidecars; empty comments and separator notes are not user segments.
+`append_comment_reply_bytes(data, target: CommentReplyTarget, text: str, author: CommentAuthor) -> CommentReplyResult` appends a native reply.
+`target = CommentReplyTarget(document_sha256, parent_id)` binds the exact native parent to immutable input bytes; stale or ambiguous targets raise `CommentMutationError`.
+`document.append_comment_reply(target, text, author)` adopts verified bytes; `document.publish()` uses validated atomic replacement, preserving the destination on failure.
+Supported forms are anchored comments, multi-paragraph comments identified by their last paragraph, and nested replies with proved inherited scope.
+Existing bodies, IDs, authorship, anchors, links and completion attributes remain intact; absent completion stays absent, and the new reply has `done=0` without reopening its parent.
+Legacy threads gain missing paragraph identities and native relationships/types; durable `commentsIds`, extensible comments, multi-story region parents and incomplete graphs fail closed.
+`CommentReplyResult` carries `data`, verified `reply_id`/`parent_id`, complete `coverage`, comments and an `OperationReceipt` with input/output hashes, created ID, affected parts and applied status.
+Untouched OPC payloads remain byte-exact, including people and unrelated extensions; ZIP containers need not match. Explicit completion mutation is not provided. ReviewKit owns review meaning.
 
 ### Package and combined transactions
 
@@ -332,21 +313,21 @@ run = document.resolve_run_locator(RunLocator(body, 0))
 The resolution DTOs contain only typed identity/value data. Physical traversal
 and `python-docx` objects remain internal to Docxtor.
 
-## Type Detection
+## DOCX admission
 
 ```python
-from docxtor import DocumentKind, detect_document_type
+from docxtor import DocxAdmissionInspection, inspect_docx_admission
 
-detection = detect_document_type(
-    "upload.bin",
-    "application/octet-stream",
-    input_bytes,
-)
-
-if detection.kind == DocumentKind.DOCX:
-    ...
+report: DocxAdmissionInspection = inspect_docx_admission(input_bytes)
 ```
 
+`DocumentPackageKind.VALID` means a normalized `word/document.xml` member exists, not full OOXML validity; `has_main_document` reports that presence.
+`ENCRYPTED` takes precedence for an OLE/CFB signature or `EncryptedPackage`/`EncryptionInfo` member; the signature alone does not prove encryption.
+`INVALID` means no main document was found, including non-ZIP input.
+`has_macros` detects `vbaProject.bin` at any package path, not macro safety or all executable content.
+`page_count` is a positive integer from `docProps/app.xml`'s `Pages`, otherwise `None`; it is stored metadata, not a rendered count.
+`diagnostics` lists unreadable and unknown parts; non-ZIP input reports `<package>`, while the OLE shortcut reports `ole_encrypted_package` with both flags false and no page count.
+Inspection does not modify input or decrypt it. Archive-read errors can propagate; the report is not a security or conformance verdict.
 
 ## Development
 
@@ -433,12 +414,11 @@ applies.
 
 ```python
 from docxtor import (
-    CommentAuthor,
-    CommentRange,
+    CommentAuthor, CommentRange,
     DocxDocument,
-    RevisionAuthor,
-    RevisionRange,
+    RevisionAuthor, RevisionRange,
     accept_all_revisions_bytes,
+    reject_all_revisions_bytes,
 )
 
 doc = DocxDocument.open("input.docx")
@@ -458,6 +438,7 @@ doc.replace_revision(
 doc.remove_comments({added.receipt.created_ids[0]})
 doc.publish()
 accepted = accept_all_revisions_bytes(doc.to_bytes(), drop_comments=False)
+rejected = reject_all_revisions_bytes(doc.to_bytes(), drop_comments=False)
 ```
 
 `DocxDocument` is the open DOCX handle. Comment add/update/remove and tracked
@@ -483,12 +464,12 @@ recognizes the OOXML on/off values. Malformed, duplicated, misplaced or
 unsupported tracking settings make coverage incomplete. Bulk acceptance and
 rejection require complete revision inventories before and after transformation.
 
-`accept_all_revisions_bytes(data, drop_comments=False, disable_tracking=True)`
-accepts the revisions and disables future change tracking. Its receipt records
-the tracking state before and after the operation. The default preserves the
-tracking setting. Disabling tracking leaves other settings, personal metadata,
-bookmarks and unresolved comments intact. Callers decide when accepting all
-revisions is appropriate for their publication workflow.
+`accept_all_revisions_bytes(data, *, drop_comments=True, disable_tracking=False)`
+and `reject_all_revisions_bytes(data, *, drop_comments=True)` return receipts with
+output bytes and before/after inventories. Both remove comments by default;
+`drop_comments=False` preserves them. The examples independently accept or reject
+revisions from the same source bytes. Only acceptance supports `disable_tracking=True`;
+it disables future tracking while leaving other settings and personal metadata intact.
 
 #### Source-bound comment regions
 
