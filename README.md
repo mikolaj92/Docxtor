@@ -321,11 +321,10 @@ from docxtor import DocxAdmissionInspection, inspect_docx_admission
 report: DocxAdmissionInspection = inspect_docx_admission(input_bytes)
 ```
 
-`DocumentPackageKind` has `VALID`, `ENCRYPTED`, and `INVALID` values.
-`VALID` means a normalized `word/document.xml` member exists, not full OOXML validity.
+`DocumentPackageKind.VALID` means a normalized `word/document.xml` member exists, not full OOXML validity; `has_main_document` reports that presence.
 `ENCRYPTED` takes precedence for an OLE/CFB signature or `EncryptedPackage`/`EncryptionInfo` member; the signature alone does not prove encryption.
-`INVALID` means no main document was found; non-ZIP bytes also produce this result.
-`has_main_document` reports member presence; `has_macros` detects `vbaProject.bin` at any package path, not macro safety or all executable content.
+`INVALID` means no main document was found, including non-ZIP input.
+`has_macros` detects `vbaProject.bin` at any package path, not macro safety or all executable content.
 `page_count` is a positive integer from `docProps/app.xml`'s `Pages`, otherwise `None`; it is stored metadata, not a rendered count.
 `diagnostics` lists unreadable and unknown parts; non-ZIP input reports `<package>`, while the OLE shortcut reports `ole_encrypted_package` with both flags false and no page count.
 Inspection does not modify input or decrypt it. Archive-read errors can propagate; the report is not a security or conformance verdict.
