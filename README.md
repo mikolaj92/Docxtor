@@ -313,21 +313,22 @@ run = document.resolve_run_locator(RunLocator(body, 0))
 The resolution DTOs contain only typed identity/value data. Physical traversal
 and `python-docx` objects remain internal to Docxtor.
 
-## Type Detection
+## DOCX admission
 
 ```python
-from docxtor import DocumentKind, detect_document_type
+from docxtor import DocxAdmissionInspection, inspect_docx_admission
 
-detection = detect_document_type(
-    "upload.bin",
-    "application/octet-stream",
-    input_bytes,
-)
-
-if detection.kind == DocumentKind.DOCX:
-    ...
+report: DocxAdmissionInspection = inspect_docx_admission(input_bytes)
 ```
 
+`DocumentPackageKind` has `VALID`, `ENCRYPTED`, and `INVALID` values.
+`VALID` means a normalized `word/document.xml` member exists, not full OOXML validity.
+`ENCRYPTED` takes precedence for an OLE/CFB signature or `EncryptedPackage`/`EncryptionInfo` member; the signature alone does not prove encryption.
+`INVALID` means no main document was found; non-ZIP bytes also produce this result.
+`has_main_document` reports member presence; `has_macros` detects `vbaProject.bin` at any package path, not macro safety or all executable content.
+`page_count` is a positive integer from `docProps/app.xml`'s `Pages`, otherwise `None`; it is stored metadata, not a rendered count.
+`diagnostics` lists unreadable and unknown parts; non-ZIP input reports `<package>`, while the OLE shortcut reports `ole_encrypted_package` with both flags false and no page count.
+Inspection does not modify input or decrypt it. Archive-read errors can propagate; the report is not a security or conformance verdict.
 
 ## Development
 
