@@ -34,8 +34,8 @@ def test_readme_installation_pins_match_pyproject() -> None:
     assert counts == [str(len(__all__))]
     assert "small" not in status.lower()
     installation = readme.split("\n## Installation\n", 1)[1].split("\n## ", 1)[0]
-    pins = re.findall(r"Docxtor\.git@v([0-9.]+)", installation)
-    assert pins == [_pyproject_version()] * 2
+    pins = re.findall(r"\bv([0-9]+\.[0-9]+\.[0-9]+)\b", installation)
+    assert pins == [_pyproject_version()] * 3
 
 
 def test_pypdf_is_not_a_runtime_dependency() -> None:
