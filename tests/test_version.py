@@ -27,15 +27,15 @@ def test_package_version_is_ahead_of_mismatched_tag() -> None:
     assert tuple(int(part) for part in __version__.split(".")) >= (0, 4, 4)
 
 
-def test_readme_documents_v041_pin_mismatch() -> None:
+def test_readme_documents_current_release_pin() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     status = readme.split("\n## Status\n", 1)[1].split("\n## ", 1)[0]
     counts = re.findall(r"The public API exports ([0-9]+) names\.", status)
     assert counts == [str(len(__all__))]
     assert "small" not in status.lower()
-    assert "v0.4.1" in readme
-    assert "0.4.0" in readme
-    assert "v0.4.4" in readme
+    assert re.findall(r"Docxtor\.git@v([^\s]+)", readme) == [_pyproject_version()] * 2
+    assert f"Pin the current release tag `v{_pyproject_version()}`" in readme
+    assert re.search(r"\bv?0\.[4-8]\.\d+\b", readme) is None
 
 
 def test_pypdf_is_not_a_runtime_dependency() -> None:
