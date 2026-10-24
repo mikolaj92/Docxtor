@@ -40,7 +40,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | DOCX admission | `DocumentPackageKind`, `DocxAdmissionInspection`, `inspect_docx_admission` |
 | Package and combined transactions | `CombinedTransactionReceipt`, `apply_docx_transaction`, `PackageDisposition`, `PackageDispositionStatus`, `PackageMutation`, `PackageMutationError`, `PackageMutationKind`, `PackageTransactionReceipt`, `apply_package_transaction` |
 | DOCX creation | `DocxCreationError`, `create_docx_from_paragraphs` |
-| Hyperlink fields | `flatten_link_fields`; `instruction_is_strippable_hyperlink_field(instruction: str) -> bool`. Import example: `from docxtor import instruction_is_strippable_hyperlink_field`. The predicate checks instruction text only, without opening a DOCX package. It returns `True` when a word-boundary `HYPERLINK` or `LINK` token and any of `mailto:`, `http://`, `https://`, `file:`, or `ftp://` occur anywhere in the text, ignoring case. A full internal TOC instruction match (`HYPERLINK` or `LINK`, followed by `\l` and `_Toc` plus digits, with optional quotes and surrounding whitespace) returns `False`. Empty text, a missing field token, or a missing recognized URI also returns `False`. This does not establish safety or validity of the complete field. |
+| Hyperlink fields | [`flatten_link_fields`, `instruction_is_strippable_hyperlink_field`](#hyperlink-fields) |
 | Metadata inspection and sanitization | `MetadataInspection`, `inspect_docx_metadata`, `sanitize_docx_metadata` |
 | Publication marks and appendices | `BodyAppendix`, `DocumentMark`, `PublicationMarkError`, `append_body_appendix`, `has_body_appendix`, `has_document_mark`, `remove_body_appendix`, `stamp_document_mark`, `write_publication_bytes` |
 | Review projection | `DocxReviewProjection`, `ReviewNoteProjection`, `ReviewParagraphProjection`, `project_docx_for_review` |
@@ -105,8 +105,7 @@ replacements are available when a whole segment should not be rewritten.
 one paragraph per string, and returns DOCX bytes. Incomplete inventory coverage
 of the created document raises `DocxCreationError`, a `ValueError` subclass,
 instead of returning bytes.
-
-### flatten_link_fields
+### Hyperlink fields
 `flatten_link_fields(path)` accepts `str | Path` and rewrites that same path. Work on a copy: `from shutil import copyfile; from docxtor import flatten_link_fields; copyfile("input.docx", "copy.docx"); changed = flatten_link_fields("copy.docx")`.
 It returns `True` when it rewrites the package, using a sibling temporary file and `os.replace`. `False` means no write occurred: the source stays byte-identical. Repeating a completed flattening returns `False`.
 In `word/document.xml`, `word/header*.xml`, and `word/footer*.xml`, it unwraps URI-bearing `HYPERLINK`/`LINK` simple fields and non-nested complex fields with a separator and end, preserving display children. Relationship-backed hyperlinks become their display children; matching hyperlink relationships are removed when readable.
@@ -114,6 +113,7 @@ In `customXml/*.xml`, text, tails, and non-schema attribute values containing `m
 Malformed supported story XML raises before replacement, leaving the source unchanged. Unreadable customXml and malformed relationship XML remain untouched; neither necessarily prevents other parts from being rewritten.
 Internal TOC fields and anchor-only hyperlinks remain. Nested or unmatched complex fields, DrawingML/VML links, linked images, attached templates, orphan external relationships, and other stories are not flattened. A `True` result reports rewriting, not package validity or safety; later parser validation is still required and may reject the output.
 
+`from docxtor import instruction_is_strippable_hyperlink_field` imports the predicate `(instruction: str) -> bool`. It checks instruction text only, without opening a DOCX package. It returns `True` when a word-boundary `HYPERLINK` or `LINK` token and any of `mailto:`, `http://`, `https://`, `file:`, or `ftp://` occur anywhere in the text, ignoring case. A full internal TOC instruction match (`HYPERLINK` or `LINK`, followed by `\l` and `_Toc` plus digits, with optional quotes and surrounding whitespace) returns `False`. Empty text, a missing field token, or a missing recognized URI also returns `False`. This does not establish safety or validity of the complete field.
 ### Metadata inspection and sanitization
 
 ```python
