@@ -40,7 +40,7 @@ Import these names from `docxtor`. Groups describe their mechanical purpose.
 | DOCX admission | `DocumentPackageKind`, `DocxAdmissionInspection`, `inspect_docx_admission` |
 | Package and combined transactions | `CombinedTransactionReceipt`, `apply_docx_transaction`, `PackageDisposition`, `PackageDispositionStatus`, `PackageMutation`, `PackageMutationError`, `PackageMutationKind`, `PackageTransactionReceipt`, `apply_package_transaction` |
 | DOCX creation | `DocxCreationError`, `create_docx_from_paragraphs` |
-| Hyperlink fields | `flatten_link_fields`, `instruction_is_strippable_hyperlink_field` |
+| Hyperlink fields | `flatten_link_fields`; `instruction_is_strippable_hyperlink_field(instruction: str) -> bool`. Import example: `from docxtor import instruction_is_strippable_hyperlink_field`. The predicate checks instruction text only, without opening a DOCX package. It returns `True` when a word-boundary `HYPERLINK` or `LINK` token and any of `mailto:`, `http://`, `https://`, `file:`, or `ftp://` occur anywhere in the text, ignoring case. A full internal TOC instruction match (`HYPERLINK` or `LINK`, followed by `\l` and `_Toc` plus digits, with optional quotes and surrounding whitespace) returns `False`. Empty text, a missing field token, or a missing recognized URI also returns `False`. This does not establish safety or validity of the complete field. |
 | Metadata inspection and sanitization | `MetadataInspection`, `inspect_docx_metadata`, `sanitize_docx_metadata` |
 | Publication marks and appendices | `BodyAppendix`, `DocumentMark`, `PublicationMarkError`, `append_body_appendix`, `has_body_appendix`, `has_document_mark`, `remove_body_appendix`, `stamp_document_mark`, `write_publication_bytes` |
 | Review projection | `DocxReviewProjection`, `ReviewNoteProjection`, `ReviewParagraphProjection`, `project_docx_for_review` |
@@ -72,6 +72,7 @@ uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.1
 
 Pin the current release tag `v0.19.1` (matching `pyproject.toml`). For the
 feature history of earlier releases, see the git tags and `docs/releases/`.
+Avoid `v0.4.1`: it shipped version `0.4.0`; `v0.4.4` corrected the pin.
 
 ## Basic Usage
 
@@ -105,6 +106,14 @@ replacements are available when a whole segment should not be rewritten.
 one paragraph per string, and returns DOCX bytes. Incomplete inventory coverage
 of the created document raises `DocxCreationError`, a `ValueError` subclass,
 instead of returning bytes.
+
+### flatten_link_fields
+`flatten_link_fields(path)` accepts `str | Path` and rewrites that same path. Work on a copy: `from shutil import copyfile; from docxtor import flatten_link_fields; copyfile("input.docx", "copy.docx"); changed = flatten_link_fields("copy.docx")`.
+It returns `True` when it rewrites the package, using a sibling temporary file and `os.replace`. `False` means no write occurred: the source stays byte-identical. Repeating a completed flattening returns `False`.
+In `word/document.xml`, `word/header*.xml`, and `word/footer*.xml`, it unwraps URI-bearing `HYPERLINK`/`LINK` simple fields and non-nested complex fields with a separator and end, preserving display children. Relationship-backed hyperlinks become their display children; matching hyperlink relationships are removed when readable.
+In `customXml/*.xml`, text, tails, and non-schema attribute values containing `mailto:`, `http://`, `https://`, `file:`, or `ftp://` are cleared in full, ignoring case. Namespace and schema identifiers remain unchanged.
+Malformed supported story XML raises before replacement, leaving the source unchanged. Unreadable customXml and malformed relationship XML remain untouched; neither necessarily prevents other parts from being rewritten.
+Internal TOC fields and anchor-only hyperlinks remain. Nested or unmatched complex fields, DrawingML/VML links, linked images, attached templates, orphan external relationships, and other stories are not flattened. A `True` result reports rewriting, not package validity or safety; later parser validation is still required and may reject the output.
 
 ### Metadata inspection and sanitization
 
@@ -262,11 +271,6 @@ combined_bytes = receipt.data
 assert not receipt.package.unexpected
 ```
 
-For atomic file publication, pass `read_package_entries(receipt.data)` to
-`write_package_atomically(destination, entries)`. It validates a sibling temporary
-file, runs an optional `validate(path)` callback, then atomically replaces the
-destination; failure before replacement preserves the existing destination.
-
 ### Text search across runs
 
 `DocxDocument.find_text()` finds overlapping exact matches across Word run
@@ -312,21 +316,21 @@ run = document.resolve_run_locator(RunLocator(body, 0))
 The resolution DTOs contain only typed identity/value data. Physical traversal
 and `python-docx` objects remain internal to Docxtor.
 
-## Type Detection
+## DOCX admission
 
 ```python
-from docxtor import DocumentKind, detect_document_type
+from docxtor import DocxAdmissionInspection, inspect_docx_admission
 
-detection = detect_document_type(
-    "upload.bin",
-    "application/octet-stream",
-    input_bytes,
-)
-
-if detection.kind == DocumentKind.DOCX:
-    ...
+report: DocxAdmissionInspection = inspect_docx_admission(input_bytes)
 ```
 
+`DocumentPackageKind.VALID` means a normalized `word/document.xml` member exists, not full OOXML validity; `has_main_document` reports that presence.
+`ENCRYPTED` takes precedence for an OLE/CFB signature or `EncryptedPackage`/`EncryptionInfo` member; the signature alone does not prove encryption.
+`INVALID` means no main document was found, including non-ZIP input.
+`has_macros` detects `vbaProject.bin` at any package path, not macro safety or all executable content.
+`page_count` is a positive integer from `docProps/app.xml`'s `Pages`, otherwise `None`; it is stored metadata, not a rendered count.
+`diagnostics` lists unreadable and unknown parts; non-ZIP input reports `<package>`, while the OLE shortcut reports `ole_encrypted_package` with both flags false and no page count.
+Inspection does not modify input or decrypt it. Archive-read errors can propagate; the report is not a security or conformance verdict.
 
 ## Development
 
@@ -338,9 +342,6 @@ uv run pytest
 
 ## Limits
 
-- DOCX output preserves archive entries and edits only selected Word XML story
-  parts.
-- Edited DOCX XML parts are rewritten, so output is not byte-identical.
 - Replacement text inherits formatting through original text-node spans. Large
   length changes can move style boundaries.
 - Document layout can change when replacement text length changes.
