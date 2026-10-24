@@ -72,7 +72,6 @@ uv add git+https://github.com/mikolaj92/Docxtor.git@v0.19.1
 
 Pin the current release tag `v0.19.1` (matching `pyproject.toml`). For the
 feature history of earlier releases, see the git tags and `docs/releases/`.
-Avoid `v0.4.1`: it shipped version `0.4.0`; `v0.4.4` corrected the pin.
 
 ## Basic Usage
 
